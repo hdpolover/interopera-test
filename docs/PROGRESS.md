@@ -7,7 +7,7 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 
 | # | Task | Phase | Status | Commit | Tests / reconcile result | Notes |
 |---|------|-------|--------|--------|--------------------------|-------|
-| 0 | Repo scaffold + docker-compose + Postgres init.sql | infra | ⬜ | — | — | compose: neo4j+postgres healthchecks; init.sql REVOKE+trigger+hash-chain |
+| 0 | Repo scaffold + docker-compose + Postgres init.sql | infra | ✅ | 0d257e8 | 7/7 | reviewer Approved; out/ fix; APOC verify at boot |
 | 1 | Phase 1 docs (flow + audit catalogue, architecture, RFC) | 1 | ⬜ | — | — | graded deliverables 01/02/03 |
 | 2 | Holdings parser (CSV → PositionRecord) | 2 | ⬜ | — | — | deterministic, confidence 1.0 |
 | 3 | Guidelines parser (PDF → RuleChunk) | 2 | ⬜ | — | — | LLM-assisted proposal, human-gated |
