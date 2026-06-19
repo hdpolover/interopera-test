@@ -79,7 +79,7 @@ def build_graph(
 ):
     """Build Neo4j knowledge graph from holdings and guidelines."""
     from src.graph.schema import apply_schema
-    from src.graph.builder import load_positions, load_rules
+    from src.graph.builder import load_positions, load_rules, load_risk_metrics
     from src.ingestion.holdings_parser import parse_holdings
     from src.ingestion.guidelines_parser import parse_guidelines
     run_id = str(uuid.uuid4())
@@ -91,6 +91,7 @@ def build_graph(
     console.print(f"Loaded {len(positions)} positions into graph")
     chunks = parse_guidelines(pdf_path=guidelines, llm_client=None)
     load_rules(driver, chunks)
+    load_risk_metrics(driver, chunks)
     console.print(f"Loaded {len(chunks)} rule chunks into graph")
     driver.close()
     _audit_log(
@@ -469,11 +470,11 @@ def narrate(
     )
     driver = _get_driver()
     figures = ComputeEngine(driver, config).run_all()
-    driver.close()
 
-    narrator = Narrator(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    narrator = Narrator(api_key=os.environ.get("ANTHROPIC_API_KEY"), driver=driver)
     narrative = narrator.write_narrative(figures, firm_id=firm_id)
     fw_result = check_firewall(narrative, figures)
+    driver.close()
 
     console.print(narrative)
     if fw_result.passed:
@@ -481,6 +482,292 @@ def narrate(
     else:
         console.print(f"[red]Firewall FAIL: {fw_result.offending_numbers}[/red]")
         raise typer.Exit(code=1)
+
+
+def _parse_numeric(value_str: str) -> Optional[float]:
+    """Strip common units and return a float, or None if parsing fails."""
+    if value_str is None:
+        return None
+    cleaned = (
+        str(value_str)
+        .replace("%", "")
+        .replace("yrs", "")
+        .replace("SGD", "")
+        .replace(",", "")
+        .replace("/bp", "")
+        .strip()
+    )
+    try:
+        return float(cleaned)
+    except (ValueError, TypeError):
+        return None
+
+
+# Mapping from figure_id → list of metric names in the answer key
+_FIGURE_ID_TO_METRICS: dict[str, list[str]] = {
+    "allocation_sgs":                    ["Singapore Government Securities"],
+    "allocation_mas_bills":              ["MAS Bills"],
+    "allocation_ig_corp":                ["Investment Grade Corporate Bonds"],
+    "allocation_high_yield":             ["High Yield Bonds"],
+    "allocation_fx_bonds":               ["Foreign Currency Bonds (hedged)", "Foreign Currency Bonds"],
+    "allocation_structured_credit":      ["Structured Credit (ABS/MBS)", "Structured Credit"],
+    "allocation_cash":                   ["Cash & Cash Equivalents"],
+    "aggregate_non_ig_exposure":         ["Aggregate non-IG exposure"],
+    "largest_single_corporate_issuer":   ["Largest single corporate issuer"],
+    "largest_gre_issuer":                ["Largest GRE issuer"],
+    "liquid_assets_ratio":               ["Liquid assets ratio"],
+    "portfolio_duration":                ["Portfolio modified duration", "Portfolio duration"],
+    "portfolio_dv01":                    ["Portfolio DV01"],
+}
+
+# Config knobs that affect each figure
+_FIGURE_CONFIG_KNOBS: dict[str, list[str]] = {
+    "aggregate_non_ig_exposure": ["non_ig.include_fallen_angels"],
+    "largest_gre_issuer":        ["concentration.gre.group_key"],
+}
+
+
+@app.command()
+def replay(
+    figure: str = typer.Option(..., help="Figure name, e.g. allocation_sgs"),
+    firm: str = typer.Option(..., help="Firm ID: A or B"),
+) -> None:
+    """Replay a figure: show graph path, citation, delta vs answer key, and config rule."""
+    firm_id = f"firm_{firm.lower()}"
+    figures_path = OUT_DIR / f"figures_{firm_id}.json"
+
+    if not figures_path.exists():
+        typer.echo(
+            f"Error: figures file not found at {figures_path}. "
+            f"Run 'run --firm {firm.upper()}' first to compute figures.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    figures_data: list[dict] = json.loads(figures_path.read_text())
+    match = next((f for f in figures_data if f.get("figure") == figure), None)
+
+    if match is None:
+        available = [f.get("figure", "") for f in figures_data]
+        typer.echo(
+            f"Error: figure '{figure}' not found in {figures_path}. "
+            f"Available figures: {available}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    # --- Graph path ---
+    console.print(f"\n[bold]Figure:[/bold] {figure}")
+    console.print(f"[bold]Graph path:[/bold] {match.get('graph_path', 'N/A')}")
+
+    # --- Source passage ---
+    citation: dict = match.get("citation") or {}
+    console.print(f"[bold]Source passage:[/bold] {citation.get('passage_summary', 'N/A')}")
+    console.print(f"[bold]Chunk ID:[/bold]       {citation.get('chunk_id', 'N/A')}")
+
+    # --- Delta vs answer key ---
+    if firm.upper() == "A":
+        import openpyxl
+        xlsx_path = SAMPLE_DOCS / "firm_A_answer_key.xlsx"
+        if xlsx_path.exists():
+            wb = openpyxl.load_workbook(str(xlsx_path), read_only=True)
+            ws = wb.active
+            headers: Optional[list[str]] = None
+            metric_names = _FIGURE_ID_TO_METRICS.get(figure, [])
+            expected_value: Optional[str] = None
+            for row in ws.iter_rows(values_only=True):
+                if headers is None:
+                    headers = [str(c).strip() if c is not None else "" for c in row]
+                    continue
+                if all(c is None for c in row):
+                    continue
+                row_dict = dict(zip(headers, row))
+                metric = str(row_dict.get("Metric", "") or "").strip()
+                if metric in metric_names:
+                    expected_value = str(row_dict.get("Value", "") or "").strip()
+                    break
+            if expected_value is not None:
+                computed_value = match.get("value", "N/A")
+                exp_num = _parse_numeric(expected_value)
+                comp_num = _parse_numeric(computed_value)
+                if exp_num is not None and comp_num is not None:
+                    delta_str = f"{comp_num - exp_num:+.4g}"
+                else:
+                    delta_str = "N/A"
+                console.print(
+                    f"\n[bold]Delta vs answer key:[/bold]\n"
+                    f"  Expected: {expected_value}\n"
+                    f"  Computed: {computed_value}\n"
+                    f"  Delta:    {delta_str}"
+                )
+            else:
+                console.print(f"\n[yellow]No answer key row found for figure '{figure}'[/yellow]")
+        else:
+            console.print(f"\n[yellow]Answer key file not found at {xlsx_path}[/yellow]")
+    else:
+        console.print("\n[dim]Note: no answer key available for Firm B — delta comparison skipped.[/dim]")
+
+    # --- Config rule ---
+    firm_yaml = CONFIG_DIR / f"{firm_id}.yaml"
+    import yaml as _yaml
+    config_dict: dict = {}
+    if firm_yaml.exists():
+        with open(firm_yaml) as fh:
+            config_dict = _yaml.safe_load(fh) or {}
+
+    base_yaml = CONFIG_DIR / "base.yaml"
+    base_dict: dict = {}
+    if base_yaml.exists():
+        with open(base_yaml) as fh:
+            base_dict = _yaml.safe_load(fh) or {}
+
+    knobs = _FIGURE_CONFIG_KNOBS.get(figure, [])
+    # All figures are affected by utilization_format
+    all_knobs = knobs + ["output.utilization_format"]
+
+    console.print("\n[bold]Config rules affecting this figure:[/bold]")
+    for knob in all_knobs:
+        parts = knob.split(".")
+        val = config_dict
+        for p in parts:
+            val = val.get(p, {}) if isinstance(val, dict) else None
+        console.print(f"  {knob} = {val}")
+
+    # Show relevant limit from base.yaml
+    limits = base_dict.get("limits", {})
+    fig_limit = limits.get(figure)
+    if fig_limit:
+        console.print(f"  limit ({figure}) = {fig_limit}")
+
+
+@app.command(name="generate-dsl")
+def generate_dsl(
+    firm: str = typer.Option(..., help="Firm ID: A or B"),
+) -> None:
+    """Write the current firm config as a DSL file to stdout with comments."""
+    import yaml as _yaml
+
+    firm_id = f"firm_{firm.lower()}"
+    firm_yaml = CONFIG_DIR / f"{firm_id}.yaml"
+
+    if not firm_yaml.exists():
+        typer.echo(f"Error: no config found for firm '{firm}' (expected {firm_yaml})", err=True)
+        raise typer.Exit(code=1)
+
+    with open(firm_yaml) as fh:
+        config_dict = _yaml.safe_load(fh) or {}
+
+    firm_id_val = config_dict.get("firm_id", firm_id)
+    include_fallen_angels = config_dict.get("non_ig", {}).get("include_fallen_angels", False)
+    group_key = config_dict.get("concentration", {}).get("gre", {}).get("group_key", "issuer")
+    utilization_format = config_dict.get("output", {}).get("utilization_format", "percent_1dp")
+
+    dsl_lines = [
+        "# InterOpera Config DSL",
+        f"firm_id: {firm_id_val}",
+        f"include_fallen_angels: {str(include_fallen_angels).lower()}"
+        "   # adds fallen angels to non-IG aggregate",
+        f"group_key: {group_key}"
+        "              # groups GRE issuers by issuer or parent_issuer",
+        f"utilization_format: {utilization_format}"
+        "  # percent_1dp | truncated_bps",
+    ]
+    typer.echo("\n".join(dsl_lines))
+
+
+@app.command(name="preview-config")
+def preview_config(
+    dsl: str = typer.Option(..., help="Path to .dsl file"),
+) -> None:
+    """Parse DSL, validate, run compute engine, print figures vs Firm A baseline."""
+    import yaml as _yaml
+    from src.compute.config_loader import FirmConfig, _deep_merge
+    from src.compute.engine import ComputeEngine
+
+    dsl_path = Path(dsl)
+    if not dsl_path.exists():
+        typer.echo(f"Error: DSL file not found at {dsl}", err=True)
+        raise typer.Exit(code=1)
+
+    with open(dsl_path) as fh:
+        dsl_dict = _yaml.safe_load(fh) or {}
+
+    # Extract knobs from DSL and build a FirmConfig-compatible dict
+    dsl_firm_id = dsl_dict.get("firm_id", "custom")
+    include_fallen_angels = dsl_dict.get("include_fallen_angels")
+    group_key = dsl_dict.get("group_key")
+    utilization_format = dsl_dict.get("utilization_format")
+
+    # Load base limits
+    base_yaml = CONFIG_DIR / "base.yaml"
+    base_dict: dict = {}
+    if base_yaml.exists():
+        with open(base_yaml) as fh:
+            base_dict = _yaml.safe_load(fh) or {}
+
+    merged: dict = dict(base_dict)
+
+    # Build the override dict from DSL knobs
+    override: dict = {"firm_id": dsl_firm_id}
+    if include_fallen_angels is not None:
+        override["non_ig"] = {"include_fallen_angels": include_fallen_angels}
+    if group_key is not None:
+        override["concentration"] = {"gre": {"group_key": group_key}}
+    if utilization_format is not None:
+        override["output"] = {"utilization_format": utilization_format}
+
+    merged = _deep_merge(merged, override)
+
+    # Validate with Pydantic
+    try:
+        config = FirmConfig(**merged)
+    except Exception as exc:
+        typer.echo(f"Error: DSL validation failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+    # Load baseline figures from Firm A (if available)
+    baseline_path = OUT_DIR / "figures_firm_a.json"
+    baseline_map: dict[str, dict] = {}
+    if baseline_path.exists():
+        try:
+            baseline_data = json.loads(baseline_path.read_text())
+            baseline_map = {f["figure"]: f for f in baseline_data}
+        except Exception:
+            pass
+    else:
+        console.print("[yellow]Note: Firm A baseline not found — run 'run --firm A' for comparison.[/yellow]")
+
+    # Run compute engine with custom config
+    driver = _get_driver()
+    try:
+        figures = ComputeEngine(driver, config).run_all()
+    finally:
+        driver.close()
+
+    table = Table("Figure", "Custom Value", "Baseline Value", "Delta", "Status")
+    for f in figures:
+        baseline = baseline_map.get(f.figure, {})
+        baseline_val = baseline.get("value", "—")
+        custom_num = _parse_numeric(f.value)
+        baseline_num = _parse_numeric(baseline_val)
+        if custom_num is not None and baseline_num is not None:
+            diff = custom_num - baseline_num
+            delta_str = f"{diff:+.4g}" if diff != 0 else "—"
+        else:
+            delta_str = "—"
+        changed = delta_str not in ("—", "N/A")
+        color = "yellow" if changed else "default"
+        status_color = "red" if f.status == "BREACH" else ("yellow" if f.status == "AT LIMIT" else "green")
+        table.add_row(
+            f"[{color}]{f.figure}[/{color}]",
+            f.value,
+            baseline_val,
+            f"[{color}]{delta_str}[/{color}]",
+            f"[{status_color}]{f.status}[/{status_color}]",
+        )
+
+    console.print(f"\n[bold]Preview for config: {dsl_path.name}[/bold] (firm_id={dsl_firm_id})")
+    console.print(table)
 
 
 if __name__ == "__main__":

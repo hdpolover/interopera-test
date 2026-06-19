@@ -52,10 +52,13 @@ def clean_neo4j_for_cli(monkeypatch):
     monkeypatch.setenv("NEO4J_URI", neo4j_uri)
     monkeypatch.setenv("NEO4J_USER", neo4j_user)
     monkeypatch.setenv("NEO4J_PASSWORD", neo4j_pass)
+    # Force stub narrative path — LLM mode fails the firewall intermittently
+    # (numbers like 100%, 1.0% not in computed set), making evaluate exit 1.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
     from neo4j import GraphDatabase
     from src.graph.schema import apply_schema
-    from src.graph.builder import load_positions, load_rules
+    from src.graph.builder import load_positions, load_rules, load_risk_metrics
     from src.ingestion.holdings_parser import parse_holdings
     from src.ingestion.guidelines_parser import parse_guidelines
 
@@ -73,6 +76,7 @@ def clean_neo4j_for_cli(monkeypatch):
 
         chunks = parse_guidelines(pdf_path=None, llm_client=None)
         load_rules(driver, chunks)
+        load_risk_metrics(driver, chunks)
 
         # Verify: no PENDING_REVIEW nodes must remain after a clean build.
         with driver.session() as session:

@@ -266,3 +266,89 @@ def threshold_node(driver, metric: str) -> dict[str, Any]:
         )
         record = result.single()
         return dict(record["t"]) if record else {}
+
+
+def retrieve_passages_for_narrative(
+    driver, figures: list
+) -> list[dict[str, Any]]:
+    """Retrieve SourceChunk passages for narrative grounding.
+
+    Global retrieval: query chunk/rule nodes whose rule_type is in
+    ('allocation limits', 'concentration limits', 'market risk').
+    Local retrieval: include citation passage_summary from each figure.
+
+    Returns list of dicts: {chunk_id, passage_summary, rule_type, page}.
+    Deduplicates by chunk_id (global retrieval first, local fills in missing).
+    """
+    seen: dict[str, dict[str, Any]] = {}
+
+    # Global retrieval — query broadly for any node with chunk_id property
+    try:
+        with driver.session() as session:
+            result = session.run(
+                """
+                MATCH (c)
+                WHERE (c:RuleChunk OR c:Chunk OR c:SourceChunk)
+                  AND c.chunk_id IS NOT NULL
+                RETURN c.chunk_id       AS chunk_id,
+                       c.passage_summary AS passage_summary,
+                       c.rule_type       AS rule_type,
+                       c.page            AS page
+                ORDER BY c.chunk_id
+                """
+            )
+            for record in result:
+                row = _row_to_dict(record)
+                cid = row.get("chunk_id")
+                if cid and cid not in seen:
+                    seen[cid] = row
+    except Exception:
+        # If the graph has no such nodes or query fails, fall through to local
+        pass
+
+    # Local retrieval — pull citation from each figure's citation dict
+    for fig in figures:
+        citation = getattr(fig, "citation", None)
+        if not isinstance(citation, dict):
+            continue
+        cid = citation.get("chunk_id")
+        if cid and cid not in seen:
+            seen[cid] = {
+                "chunk_id": cid,
+                "passage_summary": citation.get("passage_summary"),
+                "rule_type": None,
+                "page": citation.get("page"),
+            }
+
+    return list(seen.values())
+
+
+def breach_action_for_metric(driver, metric: str) -> dict[str, Any]:
+    """Multi-hop query: RiskMetric -> BreachAction -> Owner.
+
+    Returns dict with: metric, limit, monitoring_frequency, breach_action, owner.
+    Returns empty dict if metric not found — callers must handle this case.
+
+    Example traversal for 'portfolio_duration':
+      (RiskMetric {metric:'portfolio_duration'})
+        -[:HAS_BREACH_ACTION]->
+      (BreachAction {action:'PM notification within 1h'})
+        -[:NOTIFIES]->
+      (Owner {name:'Portfolio Manager'})
+    """
+    with driver.session() as session:
+        result = session.run(
+            """
+            MATCH (rm:RiskMetric {metric: $metric})
+                  -[:HAS_BREACH_ACTION]->(ba:BreachAction)
+                  -[:NOTIFIES]->(o:Owner)
+            RETURN rm.metric              AS metric,
+                   rm.limit               AS limit,
+                   rm.monitoring_frequency AS monitoring_frequency,
+                   ba.action              AS breach_action,
+                   o.name                 AS owner
+            """,
+            metric=metric,
+        )
+        record = result.single()
+        return dict(record) if record else {}

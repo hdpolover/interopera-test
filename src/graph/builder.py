@@ -178,6 +178,152 @@ def load_positions(driver, positions: list["PositionRecord"]) -> None:
                 )
 
 
+def load_risk_metrics(driver, chunks: list["RuleChunk"]) -> None:
+    """Create RiskMetric, Threshold, BreachAction, Owner nodes from the market_risk_metrics chunk.
+
+    Graph structure per metric:
+      (RiskMetric)-[:HAS_THRESHOLD]->(Threshold)
+      (RiskMetric)-[:HAS_BREACH_ACTION]->(BreachAction)
+      (BreachAction)-[:NOTIFIES]->(Owner)
+      (RiskMetric)-[:DERIVED_FROM]->(SourceChunk)
+
+    Enables multi-hop queries such as:
+      "What is the breach action for portfolio_duration and who is notified?"
+    All nodes carry standard provenance props. Idempotent via MERGE.
+    """
+    ingested_at = _now_iso()
+    metric_chunks = [c for c in chunks if c.extracted_fields.get("rule_type") == "market_risk_metrics"]
+    if not metric_chunks:
+        return
+
+    chunk = metric_chunks[0]
+    metrics: list[dict] = chunk.extracted_fields.get("metrics", [])
+    status = "VERIFIED" if chunk.extraction_confidence >= _CONFIDENCE_THRESHOLD else "PENDING_REVIEW"
+
+    with driver.session() as session:
+        for m in metrics:
+            metric_key: str = m["metric"]
+            limit_val: str = m["limit"]
+            monitoring: str = m["monitoring_frequency"]
+            breach_action: str = m["breach_action"]
+            owner_name: str = m["owner"]
+
+            prov = dict(
+                source_doc=chunk.source_doc,
+                page=chunk.page,
+                chunk_id=chunk.chunk_id,
+                ingested_at=ingested_at,
+                extraction_confidence=chunk.extraction_confidence,
+            )
+
+            # RiskMetric node + DERIVED_FROM -> SourceChunk
+            session.run(
+                """
+                MERGE (rm:RiskMetric {metric: $metric})
+                SET rm.limit                 = $limit,
+                    rm.monitoring_frequency  = $monitoring_frequency,
+                    rm.source_doc            = $source_doc,
+                    rm.page                  = $page,
+                    rm.chunk_id              = $chunk_id,
+                    rm.ingested_at           = $ingested_at,
+                    rm.extraction_confidence = $extraction_confidence,
+                    rm.status                = $status
+                """,
+                metric=metric_key, limit=limit_val, monitoring_frequency=monitoring,
+                status=status, **prov,
+            )
+            session.run(
+                """
+                MATCH (rm:RiskMetric {metric: $metric})
+                MATCH (sc:SourceChunk {chunk_id: $chunk_id})
+                MERGE (rm)-[r:DERIVED_FROM]->(sc)
+                SET r.source_doc            = $source_doc,
+                    r.page                  = $page,
+                    r.chunk_id              = $chunk_id,
+                    r.ingested_at           = $ingested_at,
+                    r.extraction_confidence = $extraction_confidence
+                """,
+                metric=metric_key, **prov,
+            )
+
+            # Threshold node + HAS_THRESHOLD edge
+            session.run(
+                """
+                MERGE (t:Threshold {metric: $metric})
+                SET t.limit_value            = $limit_value,
+                    t.source_doc             = $source_doc,
+                    t.page                   = $page,
+                    t.chunk_id               = $chunk_id,
+                    t.ingested_at            = $ingested_at,
+                    t.extraction_confidence  = $extraction_confidence,
+                    t.status                 = $status
+                """,
+                metric=metric_key, limit_value=limit_val, status=status, **prov,
+            )
+            session.run(
+                """
+                MATCH (rm:RiskMetric {metric: $metric})
+                MATCH (t:Threshold {metric: $metric})
+                MERGE (rm)-[r:HAS_THRESHOLD]->(t)
+                SET r.source_doc            = $source_doc,
+                    r.ingested_at           = $ingested_at,
+                    r.extraction_confidence = $extraction_confidence
+                """,
+                metric=metric_key, **prov,
+            )
+
+            # Owner node
+            session.run(
+                """
+                MERGE (o:Owner {name: $owner_name})
+                SET o.source_doc            = $source_doc,
+                    o.page                  = $page,
+                    o.chunk_id              = $chunk_id,
+                    o.ingested_at           = $ingested_at,
+                    o.extraction_confidence = $extraction_confidence,
+                    o.status                = $status
+                """,
+                owner_name=owner_name, status=status, **prov,
+            )
+
+            # BreachAction node + HAS_BREACH_ACTION + NOTIFIES edges
+            session.run(
+                """
+                MERGE (ba:BreachAction {action: $action})
+                SET ba.metric                = $metric,
+                    ba.source_doc            = $source_doc,
+                    ba.page                  = $page,
+                    ba.chunk_id              = $chunk_id,
+                    ba.ingested_at           = $ingested_at,
+                    ba.extraction_confidence = $extraction_confidence,
+                    ba.status                = $status
+                """,
+                action=breach_action, metric=metric_key, status=status, **prov,
+            )
+            session.run(
+                """
+                MATCH (rm:RiskMetric {metric: $metric})
+                MATCH (ba:BreachAction {action: $action})
+                MERGE (rm)-[r:HAS_BREACH_ACTION]->(ba)
+                SET r.source_doc            = $source_doc,
+                    r.ingested_at           = $ingested_at,
+                    r.extraction_confidence = $extraction_confidence
+                """,
+                metric=metric_key, action=breach_action, **prov,
+            )
+            session.run(
+                """
+                MATCH (ba:BreachAction {action: $action})
+                MATCH (o:Owner {name: $owner_name})
+                MERGE (ba)-[r:NOTIFIES]->(o)
+                SET r.source_doc            = $source_doc,
+                    r.ingested_at           = $ingested_at,
+                    r.extraction_confidence = $extraction_confidence
+                """,
+                action=breach_action, owner_name=owner_name, **prov,
+            )
+
+
 def load_rules(driver, chunks: list["RuleChunk"]) -> None:
     """Create SourceChunk and Limit nodes, with DERIVED_FROM edges.
 

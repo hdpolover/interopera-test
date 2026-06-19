@@ -380,3 +380,116 @@ def test_structural_node_status_is_verified(driver, sample_positions):
         bad = result.single()["bad"]
 
     assert bad == 0, f"Found {bad} AssetClass nodes without status='VERIFIED'"
+
+
+# --- RiskMetric / Threshold / BreachAction / Owner node tests ---
+
+
+@pytest.fixture
+def risk_metric_graph(driver, sample_chunks):
+    """Load schema, rules, and risk metrics for the Phase 2 entity tests."""
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_rules, load_risk_metrics
+    apply_schema(driver)
+    load_rules(driver, sample_chunks)
+    load_risk_metrics(driver, sample_chunks)
+    return driver
+
+
+def test_load_risk_metrics_creates_six_risk_metric_nodes(risk_metric_graph):
+    with risk_metric_graph.session() as session:
+        result = session.run("MATCH (rm:RiskMetric) RETURN count(rm) AS cnt")
+        count = result.single()["cnt"]
+    assert count == 6, f"Expected 6 RiskMetric nodes, got {count}"
+
+
+def test_load_risk_metrics_creates_threshold_per_metric(risk_metric_graph):
+    with risk_metric_graph.session() as session:
+        result = session.run(
+            "MATCH (rm:RiskMetric)-[:HAS_THRESHOLD]->(t:Threshold) RETURN count(rm) AS cnt"
+        )
+        count = result.single()["cnt"]
+    assert count == 6, f"Expected 6 HAS_THRESHOLD edges, got {count}"
+
+
+def test_load_risk_metrics_creates_breach_action_per_metric(risk_metric_graph):
+    with risk_metric_graph.session() as session:
+        result = session.run(
+            "MATCH (rm:RiskMetric)-[:HAS_BREACH_ACTION]->(ba:BreachAction) RETURN count(rm) AS cnt"
+        )
+        count = result.single()["cnt"]
+    assert count == 6, f"Expected 6 HAS_BREACH_ACTION edges, got {count}"
+
+
+def test_load_risk_metrics_breach_action_notifies_owner(risk_metric_graph):
+    with risk_metric_graph.session() as session:
+        result = session.run(
+            "MATCH (ba:BreachAction)-[:NOTIFIES]->(o:Owner) RETURN count(ba) AS cnt"
+        )
+        count = result.single()["cnt"]
+    assert count == 6, f"Expected 6 NOTIFIES edges, got {count}"
+
+
+def test_load_risk_metrics_portfolio_duration_multihop(risk_metric_graph):
+    """The brief's example query: breach action + owner for portfolio_duration via graph traversal."""
+    with risk_metric_graph.session() as session:
+        result = session.run(
+            """
+            MATCH (rm:RiskMetric {metric: 'portfolio_duration'})
+                  -[:HAS_BREACH_ACTION]->(ba:BreachAction)
+                  -[:NOTIFIES]->(o:Owner)
+            RETURN rm.limit AS limit, ba.action AS breach_action, o.name AS owner
+            """
+        )
+        record = result.single()
+    assert record is not None, "Multi-hop query for portfolio_duration returned no result"
+    assert record["limit"] == "2.0-6.5 years"
+    assert record["breach_action"] == "PM notification within 1h"
+    assert record["owner"] == "Portfolio Manager"
+
+
+def test_load_risk_metrics_risk_metric_derived_from_source_chunk(risk_metric_graph):
+    """Every RiskMetric must be traceable to a SourceChunk via DERIVED_FROM."""
+    with risk_metric_graph.session() as session:
+        result = session.run(
+            """
+            MATCH (rm:RiskMetric)-[:DERIVED_FROM]->(sc:SourceChunk)
+            RETURN count(rm) AS cnt
+            """
+        )
+        count = result.single()["cnt"]
+    assert count == 6, f"Expected 6 RiskMetric->SourceChunk DERIVED_FROM edges, got {count}"
+
+
+def test_load_risk_metrics_provenance_on_risk_metric_node(risk_metric_graph):
+    """RiskMetric nodes must carry all five provenance properties."""
+    with risk_metric_graph.session() as session:
+        result = session.run(
+            """
+            MATCH (rm:RiskMetric {metric: 'portfolio_dv01'})
+            RETURN rm.source_doc AS source_doc, rm.page AS page,
+                   rm.chunk_id AS chunk_id, rm.ingested_at AS ingested_at,
+                   rm.extraction_confidence AS extraction_confidence
+            """
+        )
+        record = result.single()
+    assert record is not None
+    assert record["source_doc"] is not None
+    assert record["page"] is not None
+    assert record["chunk_id"] is not None
+    assert record["ingested_at"] is not None
+    assert record["extraction_confidence"] is not None
+
+
+def test_load_risk_metrics_idempotent(driver, sample_chunks):
+    """Calling load_risk_metrics twice must not double-create nodes (MERGE is idempotent)."""
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_rules, load_risk_metrics
+    apply_schema(driver)
+    load_rules(driver, sample_chunks)
+    load_risk_metrics(driver, sample_chunks)
+    load_risk_metrics(driver, sample_chunks)
+    with driver.session() as session:
+        result = session.run("MATCH (rm:RiskMetric) RETURN count(rm) AS cnt")
+        count = result.single()["cnt"]
+    assert count == 6, f"Idempotency broken: expected 6 RiskMetric nodes, got {count}"

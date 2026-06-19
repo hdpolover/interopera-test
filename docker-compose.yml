@@ -45,6 +45,7 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: password
       POSTGRES_DSN: postgresql://interopera:interopera@postgres:5432/interopera
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - ./:/app
       - ./out:/app/out

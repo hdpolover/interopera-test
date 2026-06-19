@@ -9,6 +9,10 @@ CONSTRAINTS = [
     "CREATE CONSTRAINT parent_issuer_name IF NOT EXISTS FOR (pi:ParentIssuer) REQUIRE pi.name IS UNIQUE",
     "CREATE CONSTRAINT source_chunk_id IF NOT EXISTS FOR (sc:SourceChunk) REQUIRE sc.chunk_id IS UNIQUE",
     "CREATE CONSTRAINT limit_ref IF NOT EXISTS FOR (l:Limit) REQUIRE l.ref IS UNIQUE",
+    "CREATE CONSTRAINT risk_metric_key IF NOT EXISTS FOR (rm:RiskMetric) REQUIRE rm.metric IS UNIQUE",
+    "CREATE CONSTRAINT threshold_metric IF NOT EXISTS FOR (t:Threshold) REQUIRE t.metric IS UNIQUE",
+    "CREATE CONSTRAINT breach_action_key IF NOT EXISTS FOR (ba:BreachAction) REQUIRE ba.action IS UNIQUE",
+    "CREATE CONSTRAINT owner_name IF NOT EXISTS FOR (o:Owner) REQUIRE o.name IS UNIQUE",
 ]
 
 

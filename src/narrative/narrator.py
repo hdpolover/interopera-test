@@ -29,9 +29,11 @@ class Narrator:
         self,
         api_key: Optional[str] = None,
         client: Optional[object] = None,
+        driver: Optional[object] = None,
     ) -> None:
         self._api_key = api_key
         self._client = client
+        self._driver = driver
 
     def write_narrative(self, figures: list[Figure], firm_id: str) -> str:
         """Generate narrative referencing only figure values from the list.
@@ -157,6 +159,44 @@ class Narrator:
             f" status={f.status}, limit={f.limit}"
             for f in figures
         )
+
+        # Build passage context if a driver was provided (Bonus 3)
+        passage_section = ""
+        if self._driver is not None:
+            try:
+                from src.graph.queries import retrieve_passages_for_narrative
+                passages = retrieve_passages_for_narrative(self._driver, figures)
+                if passages:
+                    global_lines = [
+                        f"- {p['chunk_id']}: {p['passage_summary']}"
+                        for p in passages
+                        if p.get("passage_summary")
+                    ]
+                    local_lines = []
+                    for f in figures:
+                        citation = getattr(f, "citation", {}) or {}
+                        ps = citation.get("passage_summary")
+                        page = citation.get("page")
+                        if ps:
+                            page_str = f" (page {page})" if page is not None else ""
+                            local_lines.append(f"- {f.figure}: {ps}{page_str}")
+                    parts = []
+                    if global_lines:
+                        parts.append(
+                            "Regulatory basis (from source documents):\n"
+                            + "\n".join(global_lines)
+                        )
+                    if local_lines:
+                        parts.append(
+                            "Figure-specific citations:\n"
+                            + "\n".join(local_lines)
+                        )
+                    if parts:
+                        passage_section = "\n\n" + "\n\n".join(parts)
+            except Exception:
+                # If retrieval fails, proceed without passages
+                pass
+
         prompt = (
             f"Write a concise compliance report narrative for {firm_id}.\n\n"
             f"RULES (strictly enforced):\n"
@@ -164,11 +204,12 @@ class Narrator:
             f"   round, or alter any number.\n"
             f"2. Do not introduce any number that does not appear in the figures list.\n"
             f"3. Reference figure values and limits verbatim as given.\n\n"
-            f"Figures:\n{figures_text}\n\n"
+            f"Figures:\n{figures_text}"
+            f"{passage_section}\n\n"
             f"Write the narrative now."
         )
         message = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}],
         )

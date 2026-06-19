@@ -70,4 +70,4 @@ def test_stub_chunk_ids_are_distinct():
     chunks = parse_guidelines(pdf_path=None, llm_client=None)
     ids = [c.chunk_id for c in chunks]
     assert len(set(ids)) == len(ids), f"Duplicate chunk_ids: {ids}"
-    assert len(ids) == 6
+    assert len(ids) == 7

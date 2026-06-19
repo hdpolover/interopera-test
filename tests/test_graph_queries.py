@@ -22,10 +22,10 @@ def driver():
 
 @pytest.fixture(scope="module")
 def loaded_graph(driver):
-    """Load all 13 positions and stub rules once for the module."""
+    """Load all 13 positions, stub rules, and risk metrics once for the module."""
     import os
     from src.graph.schema import apply_schema
-    from src.graph.builder import load_positions, load_rules
+    from src.graph.builder import load_positions, load_rules, load_risk_metrics
     from src.ingestion.holdings_parser import parse_holdings
     from src.ingestion.guidelines_parser import parse_guidelines
 
@@ -39,6 +39,7 @@ def loaded_graph(driver):
     load_positions(driver, positions)
     chunks = parse_guidelines(pdf_path=None, llm_client=None)
     load_rules(driver, chunks)
+    load_risk_metrics(driver, chunks)
     return driver
 
 
@@ -208,6 +209,48 @@ def test_approve_node_raises_on_whitespace_actor(loaded_graph):
     from src.graph.queries import approve_node
     with pytest.raises(ValueError, match="actor"):
         approve_node(loaded_graph, "some-node-id", "   ")
+
+
+def test_breach_action_for_portfolio_duration(loaded_graph):
+    """Multi-hop: portfolio_duration -> PM notification within 1h -> Portfolio Manager."""
+    from src.graph.queries import breach_action_for_metric
+    result = breach_action_for_metric(loaded_graph, "portfolio_duration")
+    assert result, "Expected result for portfolio_duration, got empty dict"
+    assert result["metric"] == "portfolio_duration"
+    assert result["breach_action"] == "PM notification within 1h"
+    assert result["owner"] == "Portfolio Manager"
+    assert result["monitoring_frequency"] == "Daily"
+
+
+def test_breach_action_for_portfolio_dv01(loaded_graph):
+    from src.graph.queries import breach_action_for_metric
+    result = breach_action_for_metric(loaded_graph, "portfolio_dv01")
+    assert result["breach_action"] == "Risk Committee alert"
+    assert result["owner"] == "Risk Committee"
+
+
+def test_breach_action_for_unknown_metric_returns_empty(loaded_graph):
+    from src.graph.queries import breach_action_for_metric
+    result = breach_action_for_metric(loaded_graph, "nonexistent_metric")
+    assert result == {}
+
+
+def test_breach_action_for_all_six_metrics(loaded_graph):
+    """All 6 market risk metrics must be queryable via breach_action_for_metric."""
+    from src.graph.queries import breach_action_for_metric
+    expected_metrics = [
+        "portfolio_duration",
+        "portfolio_dv01",
+        "value_at_risk_95_10d",
+        "expected_shortfall_97_5",
+        "interest_rate_sensitivity",
+        "tracking_error_vs_benchmark",
+    ]
+    for metric in expected_metrics:
+        result = breach_action_for_metric(loaded_graph, metric)
+        assert result, f"breach_action_for_metric returned empty for {metric}"
+        assert result["breach_action"], f"breach_action missing for {metric}"
+        assert result["owner"], f"owner missing for {metric}"
 
 
 def test_approve_node_flips_status_to_verified(loaded_graph):

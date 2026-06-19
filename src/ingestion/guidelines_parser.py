@@ -105,6 +105,67 @@ _STUB_PASSAGES: list[dict[str, Any]] = [
         "page": 4,
         "extraction_confidence": 0.93,
     },
+    {
+        "rule_type": "market_risk_metrics",
+        "passage": (
+            "Section 3.1 Market Risk. Modified Duration: limit 2.0-6.5 years, monitoring Daily, "
+            "breach action PM notification within 1h. "
+            "Portfolio DV01: limit <= SGD 85,000 per bp, monitoring Daily, breach action Risk Committee alert. "
+            "Value-at-Risk (95%, 10-day): limit <= 2.5% of NAV, monitoring Daily, breach action CRO review required. "
+            "Expected Shortfall (97.5%): limit <= 3.8% of NAV, monitoring Weekly, breach action Board reporting if exceeded. "
+            "Interest Rate Sensitivity: limit <= +/-12% NAV impact for +/-200bp, monitoring Monthly, breach action Strategy review. "
+            "Tracking Error vs Benchmark: limit <= 3.0% annualised, monitoring Monthly, breach action IPS review triggered."
+        ),
+        "passage_summary": "Market risk metrics: limits, monitoring frequency, breach actions, and notified owners (Section 3.1).",
+        "extracted_fields_extra": {
+            "metrics": [
+                {
+                    "metric": "portfolio_duration",
+                    "limit": "2.0-6.5 years",
+                    "monitoring_frequency": "Daily",
+                    "breach_action": "PM notification within 1h",
+                    "owner": "Portfolio Manager",
+                },
+                {
+                    "metric": "portfolio_dv01",
+                    "limit": "<= SGD 85,000 per bp",
+                    "monitoring_frequency": "Daily",
+                    "breach_action": "Risk Committee alert",
+                    "owner": "Risk Committee",
+                },
+                {
+                    "metric": "value_at_risk_95_10d",
+                    "limit": "<= 2.5% of NAV",
+                    "monitoring_frequency": "Daily",
+                    "breach_action": "CRO review required",
+                    "owner": "Chief Risk Officer",
+                },
+                {
+                    "metric": "expected_shortfall_97_5",
+                    "limit": "<= 3.8% of NAV",
+                    "monitoring_frequency": "Weekly",
+                    "breach_action": "Board reporting if exceeded",
+                    "owner": "Board Risk Committee",
+                },
+                {
+                    "metric": "interest_rate_sensitivity",
+                    "limit": "<= +/-12% NAV for +/-200bp",
+                    "monitoring_frequency": "Monthly",
+                    "breach_action": "Strategy review",
+                    "owner": "Investment Management Committee",
+                },
+                {
+                    "metric": "tracking_error_vs_benchmark",
+                    "limit": "<= 3.0% annualised",
+                    "monitoring_frequency": "Monthly",
+                    "breach_action": "IPS review triggered",
+                    "owner": "IPS Committee",
+                },
+            ]
+        },
+        "page": 2,
+        "extraction_confidence": 0.96,
+    },
 ]
 
 

@@ -1,12 +1,12 @@
 neo4j==5.18.0
-psycopg[binary]==3.1.18
-psycopg2-binary==2.9.9
-pydantic==2.6.4
+psycopg[binary]==3.2.13
+psycopg2-binary>=2.9.9
+pydantic>=2.7
 typer==0.25.1
 openpyxl==3.1.2
 pdfplumber==0.11.0
 pyyaml==6.0.1
-anthropic==0.25.1
+anthropic>=0.40.0
 pytest==8.1.1
 pytest-asyncio==0.23.6
 rich==15.0.0
