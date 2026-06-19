@@ -39,5 +39,22 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 - **C4 Reconcile Firm A** — Tasks 9, 14
 - **C5 Firm B config-only** — Tasks 11, 14
 
+## Status: ✅ COMPLETE — all 22 tasks done, merge-ready
+
+**Final whole-branch review (opus): READY-WITH-FIXES → all fixes applied.**
+- Concentration `graph_path` made real (winning issuer/parent from actual traversal); firewall/audit hardening; spec §5 consistency.
+- CLI test-isolation flakiness found + fixed → suite is order-independent.
+
+**Final test suite: 274 passed, 0 failed, 0 skipped** — verified in both definition order and random order (Neo4j + Postgres live, in-container).
+
+**All 5 constraints verified end-to-end:**
+- **C1 Reproducible** — `test_determinism.py` double-run byte-identical (both firms)
+- **C2 Traceable through graph** — graph_path from real Cypher traversal + `DERIVED_FROM` citation; missing-citation→ERROR
+- **C3 No LLM numbers** — 6 containment gates + output firewall (symmetric, non-failing-open)
+- **C4 Reconcile Firm A** — `test_evaluate.py` real engine→answer-key, 13/13
+- **C5 Firm B config-only** — 13/13 by config, grep-proven no firm branch
+- **Append-only audit** — REVOKE + trigger + tamper-evident hash chain
+
 ## Run log
 _(append one line per task completion: date · task · commit · result)_
+- 2026-06-19 · Tasks 0–22 all complete + reviewed · final suite 274/274 green · merge-ready
