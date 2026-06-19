@@ -1,0 +1,11 @@
+firm_id: firm_b
+
+non_ig:
+  include_fallen_angels: true
+
+concentration:
+  gre:
+    group_key: parent_issuer
+
+output:
+  utilization_format: truncated_bps

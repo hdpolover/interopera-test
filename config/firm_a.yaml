@@ -1,0 +1,11 @@
+firm_id: firm_a
+
+non_ig:
+  include_fallen_angels: false
+
+concentration:
+  gre:
+    group_key: issuer
+
+output:
+  utilization_format: percent_1dp
