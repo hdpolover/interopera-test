@@ -99,11 +99,67 @@ def test_portfolio_dv01_same_in_firm_b(firm_b_figures):
     assert fig.status == "OK"
 
 
+def test_allocation_mas_bills_firm_b(firm_b_figures):
+    """Firm B: MAS Bills allocation 8.0%."""
+    fig = firm_b_figures["allocation_mas_bills"]
+    assert fig.value == "8.0%"
+    assert fig.utilization == "2000 bps"
+    assert fig.status == "OK"
+
+
+def test_allocation_ig_corp_firm_b(firm_b_figures):
+    """Firm B: IG Corp allocation 33.0%."""
+    fig = firm_b_figures["allocation_ig_corp"]
+    assert fig.value == "33.0%"
+    assert fig.utilization == "6600 bps"
+    assert fig.status == "OK"
+
+
+def test_allocation_high_yield_firm_b(firm_b_figures):
+    """Firm B: High Yield allocation 9.0%."""
+    fig = firm_b_figures["allocation_high_yield"]
+    assert fig.value == "9.0%"
+    assert fig.utilization == "6000 bps"
+    assert fig.status == "OK"
+
+
+def test_allocation_fx_bonds_firm_b(firm_b_figures):
+    """Firm B: FX Bonds allocation 5.0%."""
+    fig = firm_b_figures["allocation_fx_bonds"]
+    assert fig.value == "5.0%"
+    assert fig.utilization == "2500 bps"
+    assert fig.status == "OK"
+
+
+def test_allocation_structured_credit_firm_b(firm_b_figures):
+    """Firm B: Structured Credit allocation 6.0%."""
+    fig = firm_b_figures["allocation_structured_credit"]
+    assert fig.value == "6.0%"
+    assert fig.utilization == "6000 bps"
+    assert fig.status == "OK"
+
+
+def test_largest_single_corporate_issuer_firm_b(firm_b_figures):
+    """Firm B: Largest single corporate issuer 8.0% → AT LIMIT."""
+    fig = firm_b_figures["largest_single_corporate_issuer"]
+    assert fig.value == "8.0%"
+    assert fig.utilization == "10000 bps"
+    assert fig.status == "AT LIMIT"
+
+
+def test_liquid_assets_ratio_firm_b(firm_b_figures):
+    """Firm B: Liquid assets ratio 47.0%."""
+    fig = firm_b_figures["liquid_assets_ratio"]
+    assert fig.value == "47.0%"
+    assert fig.utilization == "18800 bps"
+    assert fig.status == "OK"
+
+
 def test_no_firm_b_hardcoding_in_compute():
-    """grep check: no 'firm_b' or 'firm b' in src/compute/ source code."""
+    """grep check: no 'firm_b', 'firm b', or == 'B'/== "B" hardcoding in src/compute/ source code."""
     compute_dir = os.path.join(REPO_ROOT, "src", "compute")
     result = subprocess.run(
-        ["grep", "-ri", r"firm_b\|firm b", compute_dir],
+        ["grep", "-riE", r"firm_b|firm b|== ['\"]B['\"]", compute_dir],
         capture_output=True,
         text=True,
     )
