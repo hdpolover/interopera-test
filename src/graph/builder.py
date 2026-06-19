@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.ingestion.holdings_parser import PositionRecord
@@ -31,7 +31,7 @@ def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
 
 
-def load_positions(driver, positions: list["PositionRecord"]) -> None:
+def load_positions(driver: Any, positions: list["PositionRecord"]) -> None:
     """Create Position, AssetClass, Issuer, ParentIssuer nodes and edges.
 
     All nodes carry provenance props: source_doc, page, chunk_id, ingested_at,
@@ -178,7 +178,7 @@ def load_positions(driver, positions: list["PositionRecord"]) -> None:
                 )
 
 
-def load_risk_metrics(driver, chunks: list["RuleChunk"]) -> None:
+def load_risk_metrics(driver: Any, chunks: list["RuleChunk"]) -> None:
     """Create RiskMetric, Threshold, BreachAction, Owner nodes from the market_risk_metrics chunk.
 
     Graph structure per metric:
@@ -324,7 +324,7 @@ def load_risk_metrics(driver, chunks: list["RuleChunk"]) -> None:
             )
 
 
-def load_rules(driver, chunks: list["RuleChunk"]) -> None:
+def load_rules(driver: Any, chunks: list["RuleChunk"]) -> None:
     """Create SourceChunk and Limit nodes, with DERIVED_FROM edges.
 
     All nodes carry provenance props: source_doc, page, chunk_id, ingested_at,

@@ -5,7 +5,6 @@ import csv
 import hashlib
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Optional
 
 
 @dataclass
@@ -15,9 +14,9 @@ class PositionRecord:
     asset_class: str
     issuer_name: str
     issuer_type: str
-    parent_issuer: Optional[str]
-    credit_rating: Optional[str]
-    downgraded_from: Optional[str]
+    parent_issuer: str | None
+    credit_rating: str | None
+    downgraded_from: str | None
     market_value_sgd: Decimal
     modified_duration: Decimal
 

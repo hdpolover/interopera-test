@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -189,7 +189,7 @@ def _make_stub_chunks() -> list[RuleChunk]:
     return chunks
 
 
-def parse_guidelines(pdf_path: Optional[str], llm_client=None) -> list[RuleChunk]:
+def parse_guidelines(pdf_path: str | None, llm_client: object | None = None) -> list[RuleChunk]:
     """Parse fund guidelines PDF into RuleChunk list.
 
     If llm_client is None (or pdf_path is None), returns deterministic stub chunks.

@@ -43,7 +43,7 @@ class FirmConfig(BaseModel):
     limits: dict[str, Any] = {}
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Deep-merge override into base. Override values take precedence."""
     result = dict(base)
     for key, value in override.items():

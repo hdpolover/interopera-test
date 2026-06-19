@@ -5,7 +5,6 @@ All arithmetic uses decimal.Decimal with ROUND_HALF_UP.
 """
 from __future__ import annotations
 
-import math
 from decimal import ROUND_HALF_UP, ROUND_FLOOR, Decimal
 from typing import Any
 
