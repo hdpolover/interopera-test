@@ -39,7 +39,7 @@ class Narrator:
         If api_key / client is set, delegates to the LLM path (which is
         firewalled downstream).  Otherwise returns the deterministic stub.
         """
-        if self._api_key or self._client:
+        if (self._api_key and self._api_key.strip()) or self._client:
             return self._llm_narrative(figures, firm_id)
         return self._stub_narrative(figures, firm_id)
 
@@ -59,10 +59,6 @@ class Narrator:
         def v(fid: str) -> str:
             """Return the figure's value, or 'N/A' if not present."""
             return fig_map[fid].value if fid in fig_map else "N/A"
-
-        def u(fid: str) -> str:
-            """Return utilization string."""
-            return fig_map[fid].utilization if fid in fig_map else "N/A"
 
         def s(fid: str) -> str:
             """Return status string."""

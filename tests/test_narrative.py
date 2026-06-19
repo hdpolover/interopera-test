@@ -69,3 +69,21 @@ def test_stub_narrative_is_deterministic(firm_a_figures):
     n1 = narrator.write_narrative(firm_a_figures, firm_id="firm_a")
     n2 = narrator.write_narrative(firm_a_figures, firm_id="firm_a")
     assert n1 == n2
+
+
+def test_whitespace_api_key_falls_back_to_stub(firm_a_figures):
+    """Whitespace-only api_key should be treated as None (no LLM call)."""
+    from src.narrative.narrator import Narrator
+    # Test that whitespace api_key returns the same stub as api_key=None
+    narrator_keyless = Narrator(api_key=None)
+    narrator_whitespace = Narrator(api_key="   ")
+
+    stub_keyless = narrator_keyless.write_narrative(firm_a_figures, firm_id="firm_a")
+    stub_whitespace = narrator_whitespace.write_narrative(firm_a_figures, firm_id="firm_a")
+
+    # Both should produce identical output (the deterministic stub)
+    assert stub_keyless == stub_whitespace
+
+    # Verify the output is the stub (contains key markers)
+    assert "35.0%" in stub_whitespace
+    assert "BREACH" in stub_whitespace or "breach" in stub_whitespace.lower()
