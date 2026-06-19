@@ -58,3 +58,5 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 ## Run log
 _(append one line per task completion: date · task · commit · result)_
 - 2026-06-19 · Tasks 0–22 all complete + reviewed · final suite 274/274 green · merge-ready
+- 2026-06-19 · post-build fix · 6bef35a · `utilization` field added to figures.json / `run --json` output
+- 2026-06-19 · post-build fix · 6f0587b · append-only audit log wired into the real CLI pipeline; real runs now emit all 6 event types (config_loaded, graph_construction, node_verified, figure_computed, reconciliation, report_exported) + verify_chain passes

@@ -112,7 +112,7 @@ A node may be automatically promoted from `PENDING_REVIEW` to `VERIFIED` without
 - The xlsx writer reads **exclusively from the list of `Figure` objects**. No narrative string is passed to the report writer (narrative is written to a separate file).
 - Optionally, `narrative_writer.py` generates a prose summary using the LLM. The narrative is firewalled: every numeric token in the narrative must appear in the computed figures set (enforced by `src/firewall/checker.py`).
 
-**Audit events emitted:** `report_exported`, `narrative_generated` (see catalogue below).
+**Audit event emitted:** `report_exported` (see catalogue below).
 
 ---
 
@@ -141,15 +141,16 @@ The LLM is permitted to generate prose and summaries only. It is structurally in
 
 All events are written to the `audit_event` table. Each row has: `event_id` (UUID), `event_type`, `run_id`, `actor` (system or human), `payload` (JSONB), `row_hash`, `created_at`.
 
+These events are emitted by the live CLI pipeline on every real run (not only in tests).
+
 | Event | Trigger | Data Captured | Retention |
 |-------|---------|---------------|-----------|
-| `graph_construction` | After `load_positions` and `load_rules` complete | node counts, edge counts, run_id, config_hash | compliance |
-| `node_verified` | When `approve_node` is called | node_id, node_label, actor, extraction_confidence, prev_status→VERIFIED | compliance |
-| `figure_computed` | After each Figure produced by engine | figure id, value, status, graph_path, citation, config_hash | compliance |
-| `reconciliation` | After `reconcile()` produces results | firm_id, per-figure pass/fail + delta, overall pass/fail | compliance |
 | `config_loaded` | When `load_config` is called | firm_id, SHA-256 of resolved effective config, knob values | operational |
-| `report_exported` | After `write_report` completes | output path, figure count, run_id | compliance |
-| `narrative_generated` | After `write_narrative` completes | firewall_passed, narrative_length | operational |
+| `graph_construction` | After `load_positions` and `load_rules` complete | position_count, rule_chunk_count | compliance |
+| `node_verified` | When `approve_node` is called | node_id, labels, actor | compliance |
+| `figure_computed` | After each Figure produced by engine | figure, value, status, graph_path, chunk_id, config_hash | compliance |
+| `reconciliation` | After `reconcile()` produces results | firm_id, pass_count, fail_count | compliance |
+| `report_exported` | After `write_report` completes | output_path, config_hash | compliance |
 
 ---
 
@@ -176,24 +177,31 @@ The audit log is tamper-evident via a hash chain. Each row's `row_hash` covers b
 ```python
 import hashlib, json
 
-def compute_row_hash(payload: dict, prev_hash: str) -> str:
-    canonical = json.dumps(payload, sort_keys=True) + prev_hash
-    return hashlib.sha256(canonical.encode()).hexdigest()
+def compute_row_hash(
+    event_type: str, actor: str, config_hash: str | None, payload: dict, prev_hash: str
+) -> str:
+    canonical = json.dumps(
+        {"event_type": event_type, "actor": actor, "config_hash": config_hash, "payload": payload},
+        sort_keys=True,
+        default=str,
+    )
+    serialized = (canonical + prev_hash).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
 ```
 
 - `prev_hash` for the **first row** is the sentinel string `"genesis"`.
 - Every subsequent row uses the `row_hash` of the immediately preceding row as `prev_hash`.
+- The timestamp (`ts`) is intentionally excluded from the hash to avoid round-trip precision issues.
 
 **Verification:**
 
+Call `AuditLogger.verify_chain()` — it re-derives all row hashes in insertion order and returns `True` if the chain is intact, `False` if any row has been tampered with:
+
 ```python
-def verify_chain(rows: list[dict]) -> bool:
-    prev_hash = "genesis"
-    for row in rows:
-        expected = compute_row_hash(row["payload"], prev_hash)
-        assert row["row_hash"] == expected, f"Hash mismatch at event_id={row['event_id']}"
-        prev_hash = row["row_hash"]
-    return True
+from src.audit.log import AuditLogger
+logger = AuditLogger(dsn)
+assert logger.verify_chain(), "Audit chain integrity check failed"
+logger.close()
 ```
 
-`verify_chain()` re-derives all hashes in insertion order and asserts equality. Any inserted, deleted, or modified row causes the assertion to fail at that row and all rows after it.
+Any inserted, deleted, or modified row causes the check to fail at that row and all rows after it.

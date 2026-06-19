@@ -51,7 +51,7 @@ docker compose run --rm app python -m src.cli.main run --firm B
 ```
 
 Both commands compute all 13 compliance figures and write:
-- `out/figures_firm_{a,b}.json` — machine-readable figure array
+- `out/figures_firm_{a,b}.json` — machine-readable figure array; each entry: `figure`, `value`, `utilization`, `status`, `limit`, `graph_path`, `citation`
 - `out/report_firm_{a,b}.xlsx` — formatted xlsx report
 
 **Verification that switching is config-only (no engine edits):**
@@ -144,7 +144,40 @@ from raw document to final report fully auditable.
 
 ## Append-Only Audit Log
 
-All pipeline events are written to Postgres `audit_event` with:
+Every real pipeline run writes an append-only, hash-chained audit trail to Postgres
+`audit_event`. The CLI emits these event types during a full run:
+
+| Event type | Emitted by |
+|---|---|
+| `config_loaded` | `run` — after config is resolved |
+| `graph_construction` | `build-graph` — after positions + rules loaded |
+| `node_verified` | `verify-graph --approve / --approve-all` — one event per approved node |
+| `figure_computed` | `run` — one event per figure (13 events per run) |
+| `reconciliation` | `reconcile` / `evaluate` |
+| `report_exported` | `run` — after xlsx report written |
+
+**Graceful degradation:** if `POSTGRES_DSN` is unset or the database is unreachable,
+the CLI prints a warning to stderr and continues — the pipeline is never blocked by
+audit failures.
+
+**Inspecting the log:**
+
+```sql
+-- View all events for the latest run
+SELECT event_type, actor, payload, ts
+FROM audit_event
+ORDER BY id DESC
+LIMIT 50;
+```
+
+```python
+# Verify the hash chain is intact
+from src.audit.log import AuditLogger
+logger = AuditLogger(dsn)
+assert logger.verify_chain()
+```
+
+**Tamper protection:**
 
 - **`REVOKE UPDATE, DELETE`** on the table — the role `app_role` has `INSERT + SELECT` only
 - **A trigger** (`enforce_audit_append_only`) that raises an exception on any `UPDATE` or `DELETE` attempt, even by a superuser running ad-hoc SQL
