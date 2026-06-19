@@ -122,8 +122,9 @@ def run_cmd(
 
     OUT_DIR.mkdir(exist_ok=True)
     figures_data = [
-        {"figure": f.figure, "value": f.value, "status": f.status,
-         "limit": f.limit, "graph_path": f.graph_path, "citation": f.citation}
+        {"figure": f.figure, "value": f.value, "utilization": f.utilization,
+         "status": f.status, "limit": f.limit, "graph_path": f.graph_path,
+         "citation": f.citation}
         for f in figures
     ]
     figures_path = OUT_DIR / f"figures_{firm_id}.json"
@@ -321,8 +322,9 @@ def verify_determinism(
 
     def to_json(figures) -> str:
         return json.dumps(
-            [{"figure": f.figure, "value": f.value, "status": f.status,
-              "limit": f.limit, "graph_path": f.graph_path, "citation": f.citation} for f in figures],
+            [{"figure": f.figure, "value": f.value, "utilization": f.utilization,
+              "status": f.status, "limit": f.limit, "graph_path": f.graph_path,
+              "citation": f.citation} for f in figures],
             sort_keys=True, indent=2
         )
 

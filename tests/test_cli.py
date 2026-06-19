@@ -241,6 +241,9 @@ def test_cli_run_firm_a_requires_neo4j(clean_neo4j_for_cli):
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 13
+    # JSON output must expose the full Figure contract, incl. utilization
+    for key in ("figure", "value", "utilization", "status", "limit", "graph_path", "citation"):
+        assert key in data[0], f"run --json output missing '{key}'"
 
 
 def test_cli_reconcile_firm_a_requires_neo4j(clean_neo4j_for_cli):
