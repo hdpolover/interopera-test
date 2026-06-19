@@ -256,6 +256,10 @@ def test_audit_log_full_pipeline_run(loaded_driver, audit_logger):
 
     # compute figures + log figure_computed events
     figures = ComputeEngine(loaded_driver, config).run_all()
+    assert len(figures) == 13, (
+        f"Pipeline returned {len(figures)} figures, expected 13: "
+        f"{[f.figure for f in figures]}"
+    )
     for fig in figures:
         audit_logger.log_event(
             run_id=run_id,
@@ -439,6 +443,16 @@ def test_firm_b_report_written(firm_b_figures):
         assert len(rows) == 14, (
             f"Firm B report: expected 14 rows (1 header + 13 data), got {len(rows)}"
         )
+
+        # Verify header (mirror Firm A test)
+        assert rows[0][0] == "Section", f"First header column should be 'Section', got {rows[0][0]!r}"
+        assert rows[0][5] == "Status", f"6th header column should be 'Status', got {rows[0][5]!r}"
+
+        # Verify all 13 data rows have non-None values in key columns (mirror Firm A test)
+        for i, row in enumerate(rows[1:], start=1):
+            assert row[0] is not None, f"Row {i}: Section column is None"
+            assert row[2] is not None, f"Row {i}: Value column is None"
+            assert row[5] is not None, f"Row {i}: Status column is None"
     finally:
         os.unlink(out_path)
 
