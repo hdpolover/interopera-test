@@ -86,7 +86,7 @@ A node may be automatically promoted from `PENDING_REVIEW` to `VERIFIED` without
 **Processing:**
 - `engine.py` traverses the verified graph in topological order.
 - Applies registered aggregators (sum, weighted-average, max, count-distinct) and comparators (≤, ≥, between, equals).
-- Produces exactly **13 `Figure` objects**. Each Figure has: `figure_id`, `value` (Decimal, never float), `status` (PASS/FAIL/WARN), `graph_path` (ordered list of node IDs traversed), `citation` (list of `chunk_id` values), `config_hash`.
+- Produces exactly **13 `Figure` objects**. Each Figure has: `figure_id`, `value` (Decimal, never float), `status` (`OK` / `BREACH` / `AT LIMIT`, or `ERROR` for an untraceable/blocked figure), `graph_path` (Cypher-style string built from the actual traversal, e.g. `(AssetClass:high_yield)-[:CONTRIBUTES_TO]->(Aggregate:non_ig)<-[:CONTRIBUTES_TO]-(AssetClass:structured_credit)`), `citation` (dict: `{ "source_doc": str, "page": int, "chunk_id": str, "passage_summary": str }`), `config_hash`.
 - **Zero LLM involvement.** The compute layer has no import of `anthropic`, `openai`, `httpx`, or `requests`. This is enforced by a static import gate test.
 
 **Audit event emitted:** `figure_computed` for each of the 13 figures (see catalogue below).
@@ -157,10 +157,11 @@ All events are written to the `audit_event` table. Each row has: `event_id` (UUI
 
 Each audit event row carries a `retention_class` field (string enum). The value controls how long the event is retained and under what deletion policy.
 
-| retention_class | Description |
-|----------------|-------------|
-| `compliance` | Long-term, immutable, regulatory retention. These rows may never be deleted or modified. Minimum retention period is determined by applicable regulation (typically 5–7 years). Used for all events that affect reported figures, node approvals, or reconciliation outcomes. |
-| `operational` | Shorter-term, still append-only. Retained for operational diagnostics (default: 90 days, configurable). Used for events that do not directly affect regulatory outputs — e.g., config loads, narrative generation metadata. |
+| retention_class | Period | Description |
+|----------------|--------|-------------|
+| `compliance` | **Permanent** | Long-term, immutable, regulatory retention. These rows may never be deleted or modified. Used for all events that affect reported figures, node approvals, or reconciliation outcomes. |
+| `operational` | **7 years** (operational/transaction data) | Retained for operational diagnostics, still append-only. Used for events that do not directly affect regulatory outputs — e.g., config loads, narrative generation metadata. |
+| `investor_facing` | **10 years** | Investor-facing output events retained for 10 years per applicable regulation. |
 
 The `retention_class` field is set at event-emit time and stored in the `audit_event` row. It cannot be changed after insertion.
 

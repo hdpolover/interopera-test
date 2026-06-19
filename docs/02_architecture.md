@@ -105,10 +105,10 @@ This document describes the module architecture of the compliance reporting syst
 
 **Responsibility:** Traverse the verified graph and produce the 13 `Figure` objects deterministically.
 
-- `config_loader.py`: loads the firm-specific YAML config. Emits `FirmConfig` dataclass. Hashes the resolved config for the audit log. Emits `config_loaded` audit event.
+- `config_loader.py`: resolves the effective config via `deep_merge(base.yaml, firm_X.yaml)`. The firm overlay sets only the three knobs that vary between firms (`non_ig.include_fallen_angels`, `concentration.gre.group_key`, `output.utilization_format`); all 13 figure definitions and limit/source bindings come from `base.yaml`. Emits `FirmConfig` dataclass. Hashes the resolved effective config for the audit log. Emits `config_loaded` audit event.
 - `registry.py`: maps aggregator/comparator names (from graph nodes) to Python callables. Allows new figure types to be registered without touching engine logic.
 - `primitives.py`: pure functions — `sum_notional`, `weighted_avg`, `count_distinct`, `max_exposure`, etc. No I/O, no LLM calls. All use `Decimal` arithmetic.
-- `engine.py`: `ComputeEngine.__init__(driver, config: FirmConfig)` — takes only a Neo4j driver and a FirmConfig. No LLM client parameter. Traverses the graph topologically, calls primitives, assembles `Figure` objects with `graph_path` and `citation` populated.
+- `engine.py`: `ComputeEngine.__init__(driver, config: FirmConfig)` — takes only a Neo4j driver and a FirmConfig. No LLM client parameter. Traverses the graph topologically, calls primitives, assembles `Figure` objects. Each Figure carries: `status` ∈ `{OK, BREACH, AT LIMIT}` (or `ERROR` for untraceable/blocked figures); `graph_path` as a Cypher-style string encoding the actual traversal; `citation` as a dict `{ "source_doc": str, "page": int, "chunk_id": str, "passage_summary": str }`.
 
 **LLM involvement: NONE.** Static import gate test asserts that `src/compute/` contains no imports of `anthropic`, `openai`, `httpx`, or `requests`.
 

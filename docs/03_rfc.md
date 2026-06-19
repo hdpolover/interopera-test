@@ -35,7 +35,7 @@ These constraints were established by the compliance and engineering teams joint
 
 **C1 — Reproducibility:** Given the same input files (holdings CSV, guidelines PDF) and the same firm configuration, the system must produce identical figure values on every run. No randomness, no LLM involvement in figure computation.
 
-**C2 — Traceability:** Every figure must carry a `graph_path` (ordered list of graph node IDs traversed to compute it) and a `citation` (list of `chunk_id` values from source PDF chunks). A regulator must be able to follow a figure from the xlsx cell, through the graph path, back to the exact sentence in the guidelines PDF.
+**C2 — Traceability:** Every figure must carry a `graph_path` (Cypher-style string built from the actual traversal) and a `citation` (dict: `{ "source_doc": str, "page": int, "chunk_id": str, "passage_summary": str }`). A regulator must be able to follow a figure from the xlsx cell, through the graph path, back to the exact sentence in the guidelines PDF.
 
 **C3 — No LLM Numbers:** The LLM writes narrative prose only. It must not compute, estimate, or propose any figure value that ends up in a report cell.
 
@@ -49,7 +49,7 @@ These constraints were established by the compliance and engineering teams joint
 
 **From C1** → The compute engine (`engine.py`) uses `Decimal` arithmetic, topological graph traversal, and registered pure-function primitives. No floating-point arithmetic. No stochastic elements.
 
-**From C2** → Every `Figure` object carries `graph_path: list[str]` (node IDs) and `citation: list[str]` (chunk IDs). These are populated by the engine during traversal. The `DERIVED_FROM` provenance edge in Neo4j is the machine-readable link from rule nodes to source chunks.
+**From C2** → Every `Figure` object carries `graph_path: str` (Cypher-style string built from the actual traversal, e.g. `(AssetClass:high_yield)-[:CONTRIBUTES_TO]->(Aggregate:non_ig)<-[:CONTRIBUTES_TO]-(AssetClass:structured_credit)`) and `citation: dict` (`{ "source_doc": str, "page": int, "chunk_id": str, "passage_summary": str }`). These are populated by the engine during traversal. The `DERIVED_FROM` provenance edge in Neo4j is the machine-readable link from rule nodes to source chunks.
 
 **From C3** → The LLM is excluded from `src/compute/` by static import gate. `ComputeEngine.__init__` accepts no LLM client. `report_writer.py` accepts only `list[Figure]`. See Section 4 (LLM Containment) for the full gate list.
 
@@ -159,9 +159,9 @@ Every `Figure` object must satisfy the following traceability invariant:
 ```
 figure.value
     ← computed by engine.py traversing figure.graph_path
-    ← graph_path[0..n] are Neo4j node IDs, all status=VERIFIED
+    ← graph_path is a Cypher-style string of all nodes/edges traversed, all status=VERIFIED
     ← each Limit/Threshold node has a DERIVED_FROM edge
-    ← DERIVED_FROM points to SourceChunk with chunk_id in figure.citation
+    ← DERIVED_FROM points to SourceChunk whose chunk_id matches figure.citation["chunk_id"]
     ← SourceChunk.text is the raw PDF passage that justified the limit
 ```
 
@@ -171,31 +171,81 @@ A regulator with access to the Neo4j database and the source PDF can reconstruct
 
 ## 7. Config System and Firm B
 
-All firm-specific parameters are declared in YAML under `config/firms/`:
+All 13 figure definitions, limit labels, aggregator assignments, and source bindings live in a shared `base.yaml`. Firm-specific files set **only** the three knobs that vary between firms; everything else is inherited via deep-merge.
 
 ```yaml
-# config/firms/firm_b.yaml
+# config/firms/base.yaml  — shared by all firms; knobs left unset
+firm_id: ~                              # overridden by firm overlay
+answer_key_path: ~
+answer_key_format: xlsx
+tolerance: 0.0
+non_ig:
+  include_fallen_angels: ~             # knob 1 — unset; must be overridden
+concentration:
+  gre:
+    group_key: ~                       # knob 2 — unset; must be overridden
+output:
+  utilization_format: ~               # knob 3 — unset; must be overridden
+figures:
+  # all 13 figure definitions with limit/source bindings …
+  # (abbreviated for readability)
+```
+
+```yaml
+# config/firms/firm_a.yaml  — Firm A overlay (3 knobs only)
+firm_id: firm_a
+answer_key_path: data/firm_a_answer_key.xlsx
+non_ig:
+  include_fallen_angels: false
+concentration:
+  gre:
+    group_key: issuer
+output:
+  utilization_format: percent_1dp
+```
+
+```yaml
+# config/firms/firm_b.yaml  — Firm B overlay (3 knobs only)
 firm_id: firm_b
 answer_key_path: data/firm_b_answer_key.xlsx
-answer_key_format: xlsx
-tolerance: 0.01
-figures:
-  - id: fig_01_issuer_concentration
-    aggregator: max_pct_notional
-    group_by: issuer
-    limit_label: IssuerConcentrationLimit
-  # ... 12 more figure definitions
+non_ig:
+  include_fallen_angels: true
+concentration:
+  gre:
+    group_key: parent_issuer
+output:
+  utilization_format: truncated_bps
 ```
+
+`config_loader.py` resolves the effective config as:
+
+```python
+effective = deep_merge(base, firm_overlay)
+```
+
+All 13 figure definitions and limit/source bindings come from `base.yaml`. Only the three knobs listed above are touched by firm overlays.
 
 To onboard Firm B:
 
-1. Create `config/firms/firm_b.yaml`.
+1. Create `config/firms/firm_b.yaml` (three knobs only, as shown above).
 2. Supply `data/firm_b_answer_key.xlsx`.
 3. Run: `python -m src.cli.main run --firm firm_b --holdings data/firm_b_holdings.csv --guidelines data/firm_b_guidelines.pdf`
 
-No code changes required. The `config_loader.py` resolves the YAML into a `FirmConfig` dataclass and hashes it. The hash is stored in every audit event (`config_hash`) so the exact config version used for a run is permanently recorded.
+No code changes required. The `config_loader.py` hashes the resolved effective config. The hash is stored in every audit event (`config_hash`) so the exact config version used for a run is permanently recorded.
 
-**Constraint C5 is satisfied** when Firm B produces a correct reconciliation result using only its YAML config and data files.
+**Constraint C5 is satisfied** when Firm B produces a correct reconciliation result using only its YAML overlay and data files.
+
+### Firm B: Expected Figure Changes
+
+With the three knobs set as above, exactly three figures change between Firm A and Firm B. All figure *values* remain in percent/years/SGD units in both firms; only the *utilization* column formatting changes for Firm B.
+
+| Figure | Firm A | Firm B |
+|--------|--------|--------|
+| Aggregate non-IG exposure | 15.0% → **OK**; utilization 1500 bps | 21.0% → **BREACH** (fallen angels now included); utilization **10500 bps** (truncated-bps format) |
+| Largest GRE issuer (concentration) | 7.0% → **OK**; issuer-level grouping; utilization 5833 bps | 13.0% → **BREACH** (Redhill Holdings = Redhill Power 7M + Redhill Transport 6M, grouped at parent_issuer); utilization **10833 bps** |
+| SGS utilization (representative) | 58.3% → **OK**; rendered "58.3%" | **5833 bps** (same value, truncated-bps format) |
+
+Note: GRE issuer exposure is **13.0%** under Firm B's `parent_issuer` grouping — not 8.0%. The 8.0% figure applies only at the individual-issuer level (Firm A's `group_key: issuer`).
 
 ---
 
@@ -219,13 +269,13 @@ The following properties together guarantee that the system is deterministic (sa
 
 ## 9. graph_path Fidelity
 
-The `graph_path` field on each `Figure` is not a summary or approximation. It is the exact ordered sequence of Neo4j node IDs that the engine traversed to produce the figure value. Fidelity requirements:
+The `graph_path` field on each `Figure` is not a summary or approximation. It is the Cypher-style string built from the actual traversal path (e.g. `(AssetClass:high_yield)-[:CONTRIBUTES_TO]->(Aggregate:non_ig)<-[:CONTRIBUTES_TO]-(AssetClass:structured_credit)`), encoding every node and relationship the engine visited to produce the figure value. Fidelity requirements:
 
-- **Completeness:** every node visited during the computation of a figure must appear in `graph_path`, in traversal order.
-- **No phantom nodes:** `graph_path` must contain only node IDs that exist in the Neo4j database at the time of the run.
+- **Completeness:** every node and relationship visited during the computation of a figure must appear in `graph_path`, in traversal order, encoded as a Cypher-style path string.
+- **No phantom nodes:** `graph_path` must reference only nodes that exist in the Neo4j database at the time of the run.
 - **Stable across re-runs:** given identical graph state, `graph_path` for a given figure must be identical across runs (follows from determinism guarantee above).
 - **Stored in audit log:** the `figure_computed` audit event stores `graph_path` in the event payload. This makes the traversal path tamper-evident (it is covered by the row hash).
-- **Used for traceability:** the `graph_path` is the machine-readable bridge between the xlsx figure value and the graph nodes. Any automated traceability tool (e.g., a future regulatory reporting portal) can use `graph_path` to reconstruct and display the full computation chain.
+- **Used for traceability:** the `graph_path` is the machine-readable bridge between the xlsx figure value and the graph nodes. Any automated traceability tool (e.g., a future regulatory reporting portal) can parse `graph_path` to reconstruct and display the full computation chain.
 
 ---
 
