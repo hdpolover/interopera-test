@@ -55,6 +55,7 @@ def test_evaluate_exits_zero_when_all_pass():
     }
 
     recon_results = reconcile(figures, firm_a_expected)
+    assert len(recon_results) == 13
     failed = [r for r in recon_results if not r.passed]
     assert not failed, f"Expected all 13 to pass, got failures: {[(r.figure, r.delta) for r in failed]}"
 
@@ -86,6 +87,7 @@ def test_evaluate_detects_reconcile_failure():
         for f in _make_passing_figures()
     }
     recon_results = reconcile(wrong_figures, firm_a_expected)
+    assert len(recon_results) == 13
     failed = [r for r in recon_results if not r.passed]
     assert len(failed) == 1
     assert failed[0].figure == "allocation_sgs"
@@ -170,6 +172,7 @@ def test_evaluate_report_structure():
     }
 
     recon_results = reconcile(figures, expected)
+    assert len(recon_results) == 13
     recon_failed = [r for r in recon_results if not r.passed]
     trace_failed = [f for f in figures if not f.graph_path or not f.citation.get("chunk_id")]
     narrator = Narrator(api_key=None)
@@ -357,6 +360,27 @@ def test_e2e_firm_b_reconcile_all_13(firm_b_e2e_figures):
 
     passed_count = len([r for r in results if r.passed])
     assert passed_count == 13, f"Firm B: only {passed_count}/13 reconciled"
+
+    # Named assertions for Firm B's distinct figures (vs Firm A)
+    figs_by_id = {f.figure: f for f in firm_b_e2e_figures}
+    assert figs_by_id["aggregate_non_ig_exposure"].value == "21.0%", (
+        f"Firm B aggregate_non_ig_exposure value mismatch: expected '21.0%', got {figs_by_id['aggregate_non_ig_exposure'].value!r}"
+    )
+    assert figs_by_id["aggregate_non_ig_exposure"].utilization == "10500 bps", (
+        f"Firm B aggregate_non_ig_exposure utilization mismatch: expected '10500 bps', got {figs_by_id['aggregate_non_ig_exposure'].utilization!r}"
+    )
+    assert figs_by_id["aggregate_non_ig_exposure"].status == "BREACH", (
+        f"Firm B aggregate_non_ig_exposure status mismatch: expected 'BREACH', got {figs_by_id['aggregate_non_ig_exposure'].status!r}"
+    )
+    assert figs_by_id["largest_gre_issuer"].value == "13.0%", (
+        f"Firm B largest_gre_issuer value mismatch: expected '13.0%', got {figs_by_id['largest_gre_issuer'].value!r}"
+    )
+    assert figs_by_id["largest_gre_issuer"].utilization == "10833 bps", (
+        f"Firm B largest_gre_issuer utilization mismatch: expected '10833 bps', got {figs_by_id['largest_gre_issuer'].utilization!r}"
+    )
+    assert figs_by_id["largest_gre_issuer"].status == "BREACH", (
+        f"Firm B largest_gre_issuer status mismatch: expected 'BREACH', got {figs_by_id['largest_gre_issuer'].status!r}"
+    )
 
 
 def test_e2e_firm_b_traceability(firm_b_e2e_figures):

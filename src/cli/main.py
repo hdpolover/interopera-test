@@ -29,12 +29,6 @@ def _get_driver():
     return GraphDatabase.driver(uri, auth=(user, password))
 
 
-def _get_pg_dsn() -> str:
-    return os.environ.get(
-        "POSTGRES_DSN", "postgresql://interopera:interopera@localhost:5432/interopera"
-    )
-
-
 @app.command()
 def ingest(
     holdings: str = typer.Option(str(SAMPLE_DOCS / "sample_holdings.csv"), help="Holdings CSV path"),
@@ -107,7 +101,6 @@ def run_cmd(
     from src.compute.config_loader import load_config, effective_config_hash
     from src.compute.engine import ComputeEngine
     from src.report.writer import write_report
-    from src.audit.log import AuditLogger
 
     firm_id = f"firm_{firm.lower()}"
     config = load_config(
@@ -305,7 +298,7 @@ def verify_determinism(
     def to_json(figures) -> str:
         return json.dumps(
             [{"figure": f.figure, "value": f.value, "status": f.status,
-              "limit": f.limit, "graph_path": f.graph_path} for f in figures],
+              "limit": f.limit, "graph_path": f.graph_path, "citation": f.citation} for f in figures],
             sort_keys=True, indent=2
         )
 

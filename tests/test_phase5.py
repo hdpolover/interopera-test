@@ -30,6 +30,7 @@ def test_evaluate_exits_zero_when_all_pass():
     firm_a_expected = {f.figure: {"value": f.value, "utilization": f.utilization, "status": f.status} for f in figures}
 
     recon_results = reconcile(figures, firm_a_expected)
+    assert len(recon_results) == 13
     failed = [r for r in recon_results if not r.passed]
     assert not failed
 
