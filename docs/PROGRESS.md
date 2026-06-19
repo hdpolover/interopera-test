@@ -17,7 +17,7 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 | 7 | Figure dataclass + registry | 3 | ✅ | c79ec1b | 8/8 | Verified by controller; exact field order + all 13 utilization_basis correct |
 | 8 | Config loader + pydantic validation | 3/4 | ✅ | 28a2011 | 7/7 | Needs-fixes→Approved; extra=forbid added, fail-fast 3-knob, deterministic hash, both firms load |
 | 9 | Compute engine — Firm A figures | 3 ⭐ | ✅ | e8ecfe4 | 19/19 | Approved+fix; 13 figures exact, non-IG path exact, citations PROVEN populated+distinct, DI gate; I-2→Task10 |
-| 10 | Verify gate | 1/2 | ⬜ | — | — | blocks on PENDING_REVIEW rule node |
+| 10 | Verify gate | 1/2 | ✅ | 8379f09 | 42/42 | Approved; gate ERROR on pending, approve→VERIFIED end-to-end, missing-citation→ERROR (I-2 closed); I-A test-fragility → final triage |
 | 11 | Config engine — Firm B figures | 4 ⭐ | ⬜ | — | — | 3 knobs, no firm hardcoding (grep-proven) |
 | 12 | LLM containment gates (6 tests) | 3 | ⬜ | — | — | static import, DI, report-from-figures, etc. |
 | 13 | Audit log (append-only + hash chain) | audit | ⬜ | — | — | REVOKE + trigger + chain verify |
