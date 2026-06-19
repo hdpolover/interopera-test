@@ -43,7 +43,7 @@ def test_missing_required_knob_raises_validation_error():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         yaml.dump(base_yaml, f)
         base_path = f.name
-    with pytest.raises((ValidationError, KeyError, TypeError)):
+    with pytest.raises(ValidationError):
         load_config(base_path, firm_path)
 
 
@@ -81,6 +81,28 @@ def test_invalid_group_key_raises():
         "non_ig": {"include_fallen_angels": False},
         "concentration": {"gre": {"group_key": "INVALID_KEY"}},
         "output": {"utilization_format": "percent_1dp"},
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(firm_yaml, f)
+        firm_path = f.name
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump({"limits": {}}, f)
+        base_path = f.name
+    with pytest.raises(ValidationError):
+        load_config(base_path, firm_path)
+
+
+def test_unknown_config_key_raises_validation_error():
+    import tempfile, yaml
+    from src.compute.config_loader import load_config
+    from pydantic import ValidationError
+    # Config with an extra unknown section alongside valid knobs
+    firm_yaml = {
+        "firm_id": "firm_test",
+        "non_ig": {"include_fallen_angels": False},
+        "concentration": {"gre": {"group_key": "issuer"}},
+        "output": {"utilization_format": "percent_1dp"},
+        "unknown_section": {"some_key": "some_value"},  # Extra key, should raise
     }
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         yaml.dump(firm_yaml, f)

@@ -6,26 +6,36 @@ import json
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class NonIgConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     include_fallen_angels: bool  # required, no default
 
 
 class GREConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     group_key: Literal["issuer", "parent_issuer"]  # required, no default
 
 
 class ConcentrationConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     gre: GREConfig
 
 
 class OutputConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     utilization_format: Literal["percent_1dp", "truncated_bps"]  # required, no default
 
 
 class FirmConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     firm_id: str
     non_ig: NonIgConfig
     concentration: ConcentrationConfig
