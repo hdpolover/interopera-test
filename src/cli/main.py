@@ -125,7 +125,7 @@ def run_cmd(
     write_report(figures, str(report_path))
 
     if output_json:
-        console.print(json.dumps(figures_data, indent=2))
+        typer.echo(json.dumps(figures_data, indent=2))
     else:
         table = Table("Figure", "Value", "Status", "Limit")
         for f in figures:
