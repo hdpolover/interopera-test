@@ -21,6 +21,74 @@ runner = CliRunner()
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NEO4J_AVAILABLE = bool(os.environ.get("NEO4J_TEST_URI"))
 
+# ---------------------------------------------------------------------------
+# Fixture: clean, fully-populated, all-VERIFIED Neo4j graph for CLI tests
+# ---------------------------------------------------------------------------
+#
+# The CLI commands (reconcile, evaluate, run, verify-determinism) connect via
+# NEO4J_URI/NEO4J_USER/NEO4J_PASSWORD env vars (see src/cli/main.py).  The
+# test environment provides NEO4J_TEST_* variants.  This fixture:
+#   1. Patches the CLI env vars to point at the test Neo4j instance.
+#   2. Wipes the graph (DETACH DELETE) and rebuilds it from scratch so every
+#      pipeline-dependent CLI test starts from a known-good state regardless
+#      of what other test modules did before it (e.g. test_verify_gate.py
+#      deletes edges and leaves PENDING_REVIEW nodes; test_engine_firm_a.py
+#      DETACH DELETEs the graph at module scope).
+# Scope=function ensures EACH pipeline-dependent test gets its own clean slate.
+
+
+@pytest.fixture(scope="function")
+def clean_neo4j_for_cli(monkeypatch):
+    """Wipe + rebuild the Neo4j graph and patch CLI env vars for isolation."""
+    neo4j_uri = os.environ.get("NEO4J_TEST_URI")
+    neo4j_user = os.environ.get("NEO4J_TEST_USER", "neo4j")
+    neo4j_pass = os.environ.get("NEO4J_TEST_PASSWORD", "password")
+
+    if not neo4j_uri:
+        pytest.skip("Neo4j not in test environment")
+
+    # Patch the env vars that src/cli/main.py _get_driver() reads so CLI
+    # commands hit the same Neo4j instance as the rest of the test suite.
+    monkeypatch.setenv("NEO4J_URI", neo4j_uri)
+    monkeypatch.setenv("NEO4J_USER", neo4j_user)
+    monkeypatch.setenv("NEO4J_PASSWORD", neo4j_pass)
+
+    from neo4j import GraphDatabase
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_positions, load_rules
+    from src.ingestion.holdings_parser import parse_holdings
+    from src.ingestion.guidelines_parser import parse_guidelines
+
+    driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_pass))
+    try:
+        # Wipe everything first so mutations from other modules don't bleed in.
+        with driver.session() as session:
+            session.run("MATCH (n) DETACH DELETE n")
+
+        apply_schema(driver)
+
+        csv_path = os.path.join(REPO_ROOT, "sample_docs", "sample_holdings.csv")
+        positions = parse_holdings(csv_path)
+        load_positions(driver, positions)
+
+        chunks = parse_guidelines(pdf_path=None, llm_client=None)
+        load_rules(driver, chunks)
+
+        # Verify: no PENDING_REVIEW nodes must remain after a clean build.
+        with driver.session() as session:
+            result = session.run(
+                "MATCH (n {status: 'PENDING_REVIEW'}) RETURN count(n) AS cnt"
+            )
+            pending_count = result.single()["cnt"]
+        assert pending_count == 0, (
+            f"Expected 0 PENDING_REVIEW nodes after clean build, got {pending_count}"
+        )
+
+        yield  # test runs here
+
+    finally:
+        driver.close()
+
 
 # ---------------------------------------------------------------------------
 # Subcommand presence — no DB needed
@@ -167,54 +235,42 @@ def test_evaluate_has_json_flag():
 # ---------------------------------------------------------------------------
 
 
-def test_cli_run_firm_a_requires_neo4j():
+def test_cli_run_firm_a_requires_neo4j(clean_neo4j_for_cli):
     """run --firm A connects to Neo4j; output has 13 figures."""
-    if not NEO4J_AVAILABLE:
-        pytest.skip("Neo4j not in test environment")
     result = runner.invoke(app, ["run", "--firm", "A", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 13
 
 
-def test_cli_reconcile_firm_a_requires_neo4j():
+def test_cli_reconcile_firm_a_requires_neo4j(clean_neo4j_for_cli):
     """reconcile --firm A must exit 0 when all figures match."""
-    if not NEO4J_AVAILABLE:
-        pytest.skip("Neo4j not in test environment")
     result = runner.invoke(app, ["reconcile", "--firm", "A"])
     assert result.exit_code == 0
 
 
-def test_cli_evaluate_firm_a_requires_neo4j():
+def test_cli_evaluate_firm_a_requires_neo4j(clean_neo4j_for_cli):
     """evaluate --firm A must exit 0 when all Phase 5 checks pass."""
-    if not NEO4J_AVAILABLE:
-        pytest.skip("Neo4j not in test environment")
     result = runner.invoke(app, ["evaluate", "--firm", "A"])
     assert result.exit_code == 0
 
 
-def test_cli_verify_determinism_firm_a_requires_neo4j():
+def test_cli_verify_determinism_firm_a_requires_neo4j(clean_neo4j_for_cli):
     """verify-determinism --firm A must exit 0 (identical runs)."""
-    if not NEO4J_AVAILABLE:
-        pytest.skip("Neo4j not in test environment")
     result = runner.invoke(app, ["verify-determinism", "--firm", "A"])
     assert result.exit_code == 0
 
 
-def test_cli_run_firm_b_requires_neo4j():
+def test_cli_run_firm_b_requires_neo4j(clean_neo4j_for_cli):
     """run --firm B connects to Neo4j; output has 13 figures."""
-    if not NEO4J_AVAILABLE:
-        pytest.skip("Neo4j not in test environment")
     result = runner.invoke(app, ["run", "--firm", "B", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 13
 
 
-def test_cli_reconcile_firm_b_requires_neo4j():
+def test_cli_reconcile_firm_b_requires_neo4j(clean_neo4j_for_cli):
     """reconcile --firm B must exit 0 when all figures match."""
-    if not NEO4J_AVAILABLE:
-        pytest.skip("Neo4j not in test environment")
     result = runner.invoke(app, ["reconcile", "--firm", "B"])
     assert result.exit_code == 0
 
