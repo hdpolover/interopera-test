@@ -88,6 +88,11 @@ docker compose run --rm app python -m src.cli.main <subcommand> [options]
 | `evaluate --firm {A,B}` | Full Phase 5: reconcile + traceability check + firewall check; exits 1 on any failure |
 | `verify-determinism --firm {A,B}` | Run the engine twice and assert byte-identical JSON output |
 | `narrate --firm {A,B}` | Generate narrative (LLM or stub) and run the firewall check |
+| `query-metric --metric <name>` / `--all` | Multi-hop graph traversal: RiskMetric → BreachAction → Owner for any §3.1 metric |
+| `show-audit-log [--last N] [--verify]` | Print audit event table and verify SHA-256 hash chain integrity |
+| `replay --figure <name> --firm {A,B}` | Show graph_path, citation, delta vs answer key, and config knobs for a figure |
+| `generate-dsl --firm {A,B}` | Emit annotated YAML config DSL to stdout |
+| `preview-config --dsl <path>` | Validate DSL, run engine, show diff table vs Firm A baseline |
 
 ---
 
