@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from src.compute.registry import Figure
 from src.graph.queries import retrieve_passages_for_narrative
@@ -169,7 +168,7 @@ def test_narrator_with_driver_includes_passages_in_prompt() -> None:
             pass
 
         @property
-        def messages(self):  # type: ignore[override]
+        def messages(self):  # type: ignore[override]  # noqa: F811
             class _Messages:
                 @staticmethod
                 def create(**kwargs):

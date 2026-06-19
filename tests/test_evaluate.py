@@ -19,7 +19,7 @@ NEO4J_PASS = os.environ.get("NEO4J_TEST_PASSWORD", "password")
 # Shared test data (mirrors FIRM_A_FIGURES_DATA from test_reconciler)
 # ---------------------------------------------------------------------------
 
-from tests.test_reconciler import FIRM_A_FIGURES_DATA
+from tests.test_reconciler import FIRM_A_FIGURES_DATA  # noqa: E402
 
 
 def _make_passing_figures():

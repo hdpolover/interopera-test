@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 import pytest
 from typer.testing import CliRunner
@@ -17,6 +18,12 @@ from typer.testing import CliRunner
 from src.cli.main import app
 
 runner = CliRunner()
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip(text: str) -> str:
+    return _ANSI.sub("", text)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NEO4J_AVAILABLE = bool(os.environ.get("NEO4J_TEST_URI"))
@@ -171,31 +178,31 @@ def test_verify_graph_help():
 def test_run_help():
     result = runner.invoke(app, ["run", "--help"])
     assert result.exit_code == 0
-    assert "--firm" in result.output
+    assert "--firm" in _strip(result.output)
 
 
 def test_reconcile_help():
     result = runner.invoke(app, ["reconcile", "--help"])
     assert result.exit_code == 0
-    assert "--firm" in result.output
+    assert "--firm" in _strip(result.output)
 
 
 def test_evaluate_help():
     result = runner.invoke(app, ["evaluate", "--help"])
     assert result.exit_code == 0
-    assert "--firm" in result.output
+    assert "--firm" in _strip(result.output)
 
 
 def test_verify_determinism_help():
     result = runner.invoke(app, ["verify-determinism", "--help"])
     assert result.exit_code == 0
-    assert "--firm" in result.output
+    assert "--firm" in _strip(result.output)
 
 
 def test_narrate_help():
     result = runner.invoke(app, ["narrate", "--help"])
     assert result.exit_code == 0
-    assert "--firm" in result.output
+    assert "--firm" in _strip(result.output)
 
 
 # ---------------------------------------------------------------------------
@@ -219,19 +226,19 @@ def test_verify_graph_approve_is_flag_not_prompt():
 def test_run_has_json_flag():
     result = runner.invoke(app, ["run", "--help"])
     assert result.exit_code == 0
-    assert "--json" in result.output
+    assert "--json" in _strip(result.output)
 
 
 def test_reconcile_has_json_flag():
     result = runner.invoke(app, ["reconcile", "--help"])
     assert result.exit_code == 0
-    assert "--json" in result.output
+    assert "--json" in _strip(result.output)
 
 
 def test_evaluate_has_json_flag():
     result = runner.invoke(app, ["evaluate", "--help"])
     assert result.exit_code == 0
-    assert "--json" in result.output
+    assert "--json" in _strip(result.output)
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +344,7 @@ def test_audit_log_written_by_build_and_run(clean_neo4j_for_cli, postgres_conn):
     dsn = os.environ["POSTGRES_DSN"]
 
     import os as _os
-    orig = _os.environ.get("POSTGRES_DSN")
+    _os.environ.get("POSTGRES_DSN")
 
     # build-graph
     result_bg = runner.invoke(app, ["build-graph"], env={"POSTGRES_DSN": dsn})
