@@ -24,8 +24,8 @@ numbers, every figure traceable to a graph path and a source-document chunk.
 docker compose up --build
 ```
 
-`--build` is required (Task 19 pinned `typer==0.25.1` and `rich==15.0.0`; a stale cached
-image from a previous pull would silently use the wrong versions).
+`--build` is required — a stale cached image from a previous pull would silently use the
+wrong package versions (`typer==0.25.1`, `rich==15.0.0` are pinned in `requirements.txt`).
 
 This single command:
 1. Builds the `app` image from the local `Dockerfile`
@@ -90,11 +90,11 @@ docker compose run --rm app python -m src.cli.main <subcommand> [options]
 | `ingest` | Parse `sample_docs/sample_holdings.csv` (13 rows) and the guidelines PDF into in-memory records |
 | `build-graph` | Load parsed holdings and rule chunks into Neo4j (applies schema, CONTRIBUTES_TO edges, provenance) |
 | `verify-graph` | List `PENDING_REVIEW` nodes; optionally approve with `--approve <node_id> --actor <name>` or `--approve-all` |
-| `run --firm {A,B}` | Compute all 13 compliance figures and write report + JSON |
-| `reconcile --firm {A,B}` | Reconcile computed figures against the answer key (xlsx for Firm A, YAML for Firm B); exits 1 on mismatch |
-| `evaluate --firm {A,B}` | Full Phase 5: reconcile + traceability check + firewall check; exits 1 on any failure |
-| `verify-determinism --firm {A,B}` | Run the engine twice and assert byte-identical JSON output |
-| `narrate --firm {A,B}` | Generate narrative (LLM or stub) and run the firewall check |
+| `run --firm {A,B,C}` | Compute all 13 compliance figures and write report + JSON |
+| `reconcile --firm {A,B,C}` | Reconcile computed figures against the answer key (xlsx for Firm A, YAML for Firm B); exits 1 on mismatch |
+| `evaluate --firm {A,B,C}` | Full Phase 5: reconcile + traceability check + firewall check; exits 1 on any failure |
+| `verify-determinism --firm {A,B,C}` | Run the engine twice and assert byte-identical JSON output |
+| `narrate --firm {A,B,C}` | Generate narrative (LLM or stub) and run the firewall check |
 | `query-metric --metric <name>` / `--all` | Multi-hop graph traversal: RiskMetric → BreachAction → Owner for any §3.1 metric |
 | `show-audit-log [--last N] [--verify]` | Print audit event table and verify SHA-256 hash chain integrity |
 | `replay --figure <name> --firm {A,B}` | Show graph_path, citation, delta vs answer key, and config knobs for a figure |
@@ -229,20 +229,19 @@ assert logger.verify_chain()
 ├── config/
 │   ├── base.yaml              # Shared defaults
 │   ├── firm_a.yaml            # Firm A overrides (3 knobs)
-│   └── firm_b.yaml            # Firm B overrides (3 knobs)
+│   ├── firm_b.yaml            # Firm B overrides (3 knobs)
+│   └── firm_c.yaml            # Firm C overrides (third independent config)
 ├── docs/
 │   ├── 01_flow_and_audit_events.md   # Phase 1: event catalogue
 │   ├── 02_architecture.md            # Phase 1: layer diagram
 │   ├── 03_rfc.md                     # Phase 1: LLM containment RFC
-│   ├── PROGRESS.md                   # Per-task status + commit log
-│   └── superpowers/
-│       ├── specs/2026-06-19-interopera-design.md          # Original design spec
-│       └── plans/2026-06-19-interopera-implementation.md  # 23-task implementation plan
+│   ├── DECISIONS.md                  # Architecture + tooling decisions with rationale
+│   └── VERIFICATION.md              # Live verification results + requirements traceability
 ├── sample_docs/
 │   ├── sample_holdings.csv    # 13-row portfolio (input)
 │   └── firm_A_answer_key.xlsx # Expected Firm A figures (reconcile target)
 ├── src/
-│   ├── cli/main.py            # Typer CLI — 8 subcommands
+│   ├── cli/main.py            # Typer CLI — 13 subcommands
 │   ├── compute/               # Engine, config loader, primitives, registry
 │   ├── firewall/              # LLM containment checker (6 gates)
 │   ├── graph/                 # Neo4j schema, builder, queries
@@ -250,7 +249,7 @@ assert logger.verify_chain()
 │   ├── narrative/             # Narrative writer (LLM-optional stub)
 │   ├── reconcile/             # Reconciler against answer keys
 │   └── report/                # xlsx report writer
-├── tests/                     # Full test suite (200+ tests across 20 files)
+├── tests/                     # Full test suite (315 tests across 20 files)
 ├── docker-compose.yml
 ├── init.sql                   # Postgres schema + append-only trigger
 └── .env.example               # Port override documentation
@@ -280,8 +279,8 @@ These are noted but not wired in the Docker Compose demo stack:
   (AWS Secrets Manager, Vault, etc.) rather than environment variables in compose files.
 - **DB role** — the app should connect as `app_role` (INSERT + SELECT only), not as the
   superuser `interopera`. The role is already defined in `init.sql`.
-- **Viewer auth** — the FastAPI replay viewer (bonus task, not implemented) would require
-  at minimum read-only token auth before exposing audit events.
+- **Viewer auth** — a web-based replay viewer would require at minimum read-only token
+  auth before exposing audit events (the `replay` CLI command is implemented; a web UI is not).
 - **Neo4j auth** — use a strong password and disable the Neo4j browser endpoint in production.
 - **Audit append-only caveats** — (1) Append-only is enforced by the `enforce_audit_append_only`
   BEFORE UPDATE/DELETE trigger, which fires even for superusers running ad-hoc SQL. (2) The app
