@@ -29,7 +29,7 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 | 19 | CLI wiring tests | infra | ✅ | cfd9718 | 29/29 | Approved+fix; 8 subcommands, non-interactive, --json, exit 0/1 tested (incl failure path), deps pinned (typer 0.25.1/rich 15.0.0), image rebuilt |
 | 20 | Determinism double-run test | 1 | ✅ | 4989e3d | 6/6 | Verified by controller; two independent run_all(), byte-identical figures.json incl citation, both firms, no timestamp leak (constraint 1 proven) |
 | 21 | Full pipeline integration test | all | ✅ | 566d1ff | 16/16 | Approved+fix; both firms full pipeline (ingest→graph→compute→reconcile 13/13→report→audit chain→firewall), firms provably differ, real modules no shortcuts |
-| 22 | README + polish | runs | ⬜ | — | — | single-command start |
+| 22 | README + polish | runs | ✅ | 2526a0b | 4/4 | README (start `docker compose up --build`, both firms, CLI table, constraint→test map), .env.example, obsolete compose version key removed |
 | B | Bonus: replay viewer (FastAPI) | bonus | ⬜ | — | — | only if Phases 3–5 land with time |
 
 ## Constraint coverage (re-checked at each ⭐ task)
