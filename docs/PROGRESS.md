@@ -10,7 +10,7 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 | 0 | Repo scaffold + docker-compose + Postgres init.sql | infra | ✅ | 0d257e8 | 7/7 | reviewer Approved; out/ fix; APOC verify at boot |
 | 1 | Phase 1 docs (flow + audit catalogue, architecture, RFC) | 1 | ✅ | a442480 | 6/6 | Approved; fixed status vocab, citation dict, graph_path string, 3-knob overlay, Firm B figures |
 | 2 | Holdings parser (CSV → PositionRecord) | 2 | ✅ | bc2959e | 10/10 | Approved; real value+Decimal+sort+NAV asserts; 4 Minor (dead import etc.) |
-| 3 | Guidelines parser (PDF → RuleChunk) | 2 | ⬜ | — | — | LLM-assisted proposal, human-gated |
+| 3 | Guidelines parser (PDF → RuleChunk) | 2 | ✅ | 04a299d | 11/11 | Approved+fix; content-hash id pinned, 6 distinct chunks, keyless stub |
 | 4 | Graph schema + builder | 2 | ⬜ | — | — | provenance on every node/edge; slug + CONTRIBUTES_TO edges |
 | 5 | Graph queries (selectors) | 2/3 | ⬜ | — | — | fallen-angel filter → only COR-05 |
 | 6 | Compute primitives | 3 | ⬜ | — | — | Decimal, comparators, formatters |
