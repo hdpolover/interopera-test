@@ -12,7 +12,7 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 | 2 | Holdings parser (CSV → PositionRecord) | 2 | ✅ | bc2959e | 10/10 | Approved; real value+Decimal+sort+NAV asserts; 4 Minor (dead import etc.) |
 | 3 | Guidelines parser (PDF → RuleChunk) | 2 | ✅ | 04a299d | 11/11 | Approved+fix; content-hash id pinned, 6 distinct chunks, keyless stub |
 | 4 | Graph schema + builder | 2 | ✅ | 24d6ec7 | 14/14 | Approved+fix; provenance on nodes+edges tested, slug/CONTRIBUTES_TO/distinct-chunk asserted, status on all nodes |
-| 5 | Graph queries (selectors) | 2/3 | ⬜ | — | — | fallen-angel filter → only COR-05 |
+| 5 | Graph queries (selectors) | 2/3 | ✅ | 4bad2f8 | 15/15 (+1 skip) | Approved; fallen-angel={COR-05} proven (BBB- excl/BB+ incl); 2 obligations → Task 10 |
 | 6 | Compute primitives | 3 | ⬜ | — | — | Decimal, comparators, formatters |
 | 7 | Figure dataclass + registry | 3 | ⬜ | — | — | fields incl. utilization + utilization_basis |
 | 8 | Config loader + pydantic validation | 3/4 | ⬜ | — | — | base + firm merge, fail-fast |
