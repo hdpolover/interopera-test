@@ -224,3 +224,109 @@ The following invariants are maintained by the architecture:
 > **The LLM must be structurally incapable of touching a number.**
 
 This is not achieved by prompt engineering or runtime guardrails alone. It is achieved through module boundaries, dependency injection contracts, and static analysis tests that would fail if LLM imports were introduced into the compute layer. The architecture is designed so that even a compromised or hallucinating LLM cannot produce a number that ends up in the xlsx report or in the reconciliation outcome.
+
+---
+
+## Infrastructure & Tooling Decisions
+
+Each entry follows the format: **Decision → Alternatives considered → Rationale**.
+
+---
+
+### Docker Compose
+
+**Decision:** Use Docker Compose to orchestrate Neo4j, Postgres, and the Python app as services.
+
+**Alternatives:** Bare `venv` with manually managed services; Kubernetes (k8s).
+
+**Rationale:** Docker Compose gives dev/CI environment parity with a single `docker compose up` command. Service health checks (`healthcheck:` stanzas) ensure Neo4j and Postgres are ready before the app starts, eliminating race-condition failures in CI. Kubernetes is operationally correct for production but adds significant complexity (Helm, cluster provisioning, RBAC) that is disproportionate to a single-machine compliance batch tool. Bare venv requires every developer to manually start Neo4j and Postgres and manage their versions — a source of environment drift.
+
+---
+
+### Neo4j 5.18 + APOC
+
+**Decision:** Use Neo4j 5.18 as the graph store with the APOC plugin.
+
+**Alternatives:** Postgres `pgvector` / recursive CTE approach; DGraph; in-memory Python `dict` graph.
+
+**Rationale:** Compliance rules map naturally to a property graph: issuers roll up to parent issuers, positions belong to asset classes, limits apply to entities — these are all native graph relationships. Neo4j's Cypher `MERGE` is idempotent by design, which is critical for re-runnable ingestion pipelines: running `MERGE (n:Issuer {id: $id})` twice is safe. APOC provides `apoc.schema.assert` for enforcing uniqueness constraints at startup, and `apoc.periodic.iterate` for large batch operations. Postgres with recursive CTEs can model graphs but requires hand-written traversal logic and is significantly slower on multi-hop queries (e.g., consolidated issuer exposure across three parent levels). DGraph has a smaller ecosystem and fewer operational precedents in compliance tooling. An in-memory dict cannot survive process restarts and cannot be queried by multiple tools.
+
+---
+
+### Postgres 16 for Audit Log
+
+**Decision:** Use Postgres 16 to store the `audit_event` table.
+
+**Alternatives:** SQLite; append-only flat file; Redis streams.
+
+**Rationale:** The audit log requires tamper-evidence: `BEFORE UPDATE` and `BEFORE DELETE` triggers fire before any modification and can raise an exception to block it, making the table append-only at the database level rather than by application convention. Postgres provides full ACID guarantees, meaning a crash mid-insert leaves no partial rows. `pg_isready` gives a standard health check endpoint used by Docker Compose. SQLite lacks per-table role grants, making it harder to enforce the application role having only `INSERT` and `SELECT`. A flat file has no transaction semantics and is trivially corruptible. Redis streams are append-only but lack SQL querying, JOINs, and the row-level security model needed for long-term compliance retention.
+
+---
+
+### Typer (CLI framework)
+
+**Decision:** Use Typer for the CLI layer (`src/cli/`).
+
+**Alternatives:** Click; `argparse`.
+
+**Rationale:** Typer generates `--help` output and argument parsing automatically from Python type annotations — the function signature `def run(firm: str, holdings: Path, guidelines: Path)` is the full CLI contract, with no separate decorator registration required. Typer is built on Click under the hood, so Click's ecosystem applies, but Typer removes the boilerplate of `@click.option` decorators. It has native Rich integration for structured terminal output. `argparse` requires explicit `add_argument` calls for every parameter and produces less readable help output.
+
+---
+
+### Pydantic v2 with `extra=forbid`
+
+**Decision:** Use Pydantic v2 with `model_config = ConfigDict(extra="forbid")` on all config models.
+
+**Alternatives:** Pydantic v1; Python `dataclasses`.
+
+**Rationale:** `extra="forbid"` causes Pydantic to raise a `ValidationError` at config load time if the YAML contains any unrecognised key (e.g., a typo like `non_ig_limit` instead of `non_ig`). Without this, a typo silently falls through and the figure is computed against the wrong default — a compliance-critical bug that appears to succeed. Pydantic v2 is significantly faster than v1 for model validation (Rust-backed core) and has improved error messages. Plain `dataclasses` have no built-in schema validation or coercion; a string `"0.10"` from YAML would not be automatically converted to `Decimal("0.10")`.
+
+---
+
+### psycopg3 binary
+
+**Decision:** Use `psycopg[binary]` (psycopg3) for Postgres connectivity.
+
+**Alternatives:** `psycopg2`; SQLAlchemy ORM.
+
+**Rationale:** psycopg3 is the current maintained driver with native Python 3.11+ async support (`AsyncConnection`). The binary distribution bundles libpq, eliminating system-level dependency on `libpq-dev` in Docker images. psycopg2 is in maintenance-only mode. SQLAlchemy ORM adds an abstraction layer that is unnecessary here — all queries are explicit parameterised SQL (`INSERT INTO audit_event ...`), and ORM magic would obscure the append-only constraint enforcement that is central to the audit design.
+
+---
+
+### Rich for terminal output
+
+**Decision:** Use Rich for all CLI output (tables, status messages, progress).
+
+**Alternatives:** `tabulate`; plain `print`.
+
+**Rationale:** Rich renders structured tables with color-coded status columns (`OK` in green, `BREACH` in red) without custom formatting code. It respects `NO_COLOR` and non-TTY environments (CI pipelines) automatically, falling back to plain text. `tabulate` produces plain ASCII tables with no color or live progress. Plain `print` requires manual column alignment and ANSI escape code management.
+
+---
+
+### openpyxl for Excel output
+
+**Decision:** Use `openpyxl` to write the compliance report xlsx.
+
+**Alternatives:** `xlsxwriter`; `pandas.ExcelWriter`.
+
+**Rationale:** Cell-level styling — specifically coloring each row red/amber/green based on figure status — requires per-cell `PatternFill` and `Font` control. openpyxl exposes the full OpenXML model, making this straightforward. `xlsxwriter` is write-only (cannot read existing files) and has a different API for cell styling. `pandas.ExcelWriter` wraps openpyxl or xlsxwriter but adds a pandas dependency that is not otherwise needed, and the abstraction layer makes per-row conditional formatting more verbose, not less.
+
+---
+
+### pytest
+
+**Decision:** Use `pytest` as the test framework.
+
+**Alternatives:** `unittest` (stdlib).
+
+**Rationale:** pytest fixtures allow dependency injection (Neo4j driver, Postgres connection) with clear setup/teardown scoping. `@pytest.mark.parametrize` drives data-driven tests (e.g., all 13 figure computations from a single test function) without boilerplate. Assertion failure messages show the actual vs. expected values directly, without `assertEqual(a, b)` wrapping. `unittest` is functional but verbose — `setUp`/`tearDown` class methods, `self.assert*` calls, and no parametrize equivalent without third-party extensions.
+
+---
+
+### claude-haiku-4-5-20251001 for narrative generation
+
+**Decision:** Use `claude-haiku-4-5-20251001` as the LLM for narrative prose generation.
+
+**Alternatives:** Claude Sonnet; GPT-4o.
+
+**Rationale:** Narrative generation is prose-only — the LLM receives a list of pre-computed figures and writes sentences describing them. There are no multi-step reasoning chains, no tool use, and no structured data extraction; the task is text elaboration of known facts. Haiku is the fastest and lowest-cost Claude model, which matters for batch runs over many firm/period combinations. The output firewall (`checker.py`) enforces correctness independently of model capability — any number the LLM introduces that was not in the figure set causes the narrative to be rejected and re-generated, making model choice irrelevant to compliance accuracy. In environments where outbound traffic is firewalled, model selection is further constrained by network policy rather than capability preference.
