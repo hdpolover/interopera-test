@@ -9,9 +9,15 @@ no exception, same output for same inputs.
 """
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from src.compute.registry import Figure
+
+# Model override via env var — allows upgrading/swapping without code changes
+# when the current model is deprecated or a better option becomes available.
+_DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+_ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", _DEFAULT_MODEL)
 
 
 class Narrator:
@@ -208,8 +214,8 @@ class Narrator:
             f"{passage_section}\n\n"
             f"Write the narrative now."
         )
-        message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        message = client.messages.create(  # type: ignore[attr-defined]
+            model=_ANTHROPIC_MODEL,
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}],
         )

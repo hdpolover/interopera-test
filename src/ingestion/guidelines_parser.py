@@ -215,7 +215,7 @@ def parse_guidelines(pdf_path: str | None, llm_client: object | None = None) -> 
                 if len(para) < 30:
                     continue
                 # Call LLM to extract structured fields and confidence
-                result = llm_client.extract_rule(para)
+                result = llm_client.extract_rule(para)  # type: ignore[attr-defined]
                 if result is None:
                     continue
                 chunks.append(

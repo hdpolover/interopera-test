@@ -96,6 +96,27 @@ docker compose run --rm app python -m src.cli.main <subcommand> [options]
 
 ---
 
+## Code Quality
+
+Dev tools (`pytest-cov`, `mypy`, `bandit`, `ruff`) are included in `requirements.txt` and
+available inside the container. Run them via Make:
+
+```bash
+# Run tests with coverage report (84% total)
+make coverage
+
+# Type-check all source files (0 errors)
+make typecheck
+
+# Security scan — medium/high severity only (0 issues)
+make security
+
+# Lint with ruff
+make lint
+```
+
+---
+
 ## Running Tests
 
 The test suite requires both databases running. Run inside the Compose network so the

@@ -1,0 +1,15 @@
+firm_id: firm_c
+
+# Firm C: fallen angels excluded (like A), GRE grouped by parent (like B),
+# utilization as basis points (like B). Distinct third combination — proves
+# config-only switching is not a two-firm coincidence.
+
+non_ig:
+  include_fallen_angels: false
+
+concentration:
+  gre:
+    group_key: parent_issuer
+
+output:
+  utilization_format: truncated_bps

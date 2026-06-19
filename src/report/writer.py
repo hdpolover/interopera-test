@@ -120,7 +120,7 @@ def write_report(figures: list[Figure], output_path: str) -> None:
             ]
             status = fig.status
         else:
-            row_data = [section, metric, None, None, None, None, None]
+            row_data = [section, metric, None, None, None, None, None]  # type: ignore[list-item]
             status = None
         ws.append(row_data)
 

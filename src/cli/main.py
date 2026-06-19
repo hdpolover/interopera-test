@@ -549,6 +549,7 @@ def query_metric(
                 )
             console.print(table)
         else:
+            assert metric is not None  # guaranteed by the early-exit guard above
             result = breach_action_for_metric(driver, metric)
             if not result:
                 typer.echo(f"No RiskMetric node found for: {metric}", err=True)
