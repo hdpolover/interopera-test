@@ -21,7 +21,7 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 | 11 | Config engine — Firm B figures | 4 ⭐ | ✅ | 0aaa517 | 14/14 (+19 A) | Approved+fix; all 13 Firm B figures (21%/13%/bps) by config only, no firm branch (grep-proven); engine bug fix (fallen-angel over-select) firm-agnostic |
 | 12 | LLM containment gates (6 tests) | 3 | ✅ | 03781f8 | 6/6 | Approved; all gates genuinely effective (AST scans, live sig inspect, behavioral); created stubs writer/checker/reconciler → 14/15/16 replace |
 | 13 | Audit log (append-only + hash chain) | audit | ✅ | 15fc398 | 9/9 | Approved+fix; UPDATE/DELETE blocked by trigger, hash now covers event_type/actor/config_hash/payload (actor-tamper detected), 5 event types |
-| 14 | Reconciler (Firm A exact + Firm B config-only) | 3/4/5 | ⬜ | — | — | compares value + utilization + status |
+| 14 | Reconciler (Firm A exact + Firm B config-only) | 3/4/5 | ✅ | 064e6fb | 12/12 | Approved+fix; 3-field compare, parses all 13 real xlsx rows, immutable result, Gate 6 clean; I-1 e2e reconcile → Task 18 |
 | 15 | Firewall checker | 5 | ⬜ | — | — | narrative numbers ⊆ computed; allowlist documented |
 | 16 | Report writer (xlsx) | 3 | ⬜ | — | — | populates template from figures.json |
 | 17 | Narrative writer (LLM-optional) | 3 | ⬜ | — | — | graceful fallback w/o key |
