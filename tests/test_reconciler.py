@@ -46,7 +46,7 @@ def test_reconcile_all_pass_firm_a(firm_a_figures, firm_a_expected):
 
 
 def test_reconcile_detects_wrong_value(firm_a_figures, firm_a_expected):
-    from src.reconcile.reconciler import reconcile, ReconcileResult
+    from src.reconcile.reconciler import reconcile
     wrong_expected = dict(firm_a_expected)
     wrong_expected["allocation_sgs"] = {"value": "36.0%", "status": "OK"}
     results = reconcile(firm_a_figures, wrong_expected)
@@ -100,3 +100,6 @@ def test_parse_answer_key_xlsx_firm_a():
     expected = parse_answer_key_xlsx(xlsx_path)
     assert len(expected) == 13
     assert expected["allocation_sgs"]["value"] == "35.0%"
+    assert expected["allocation_sgs"]["utilization"] == "58.3%"
+    assert expected["allocation_cash"]["utilization"] == "n/a"
+    assert expected["portfolio_duration"]["utilization"] == "n/a"

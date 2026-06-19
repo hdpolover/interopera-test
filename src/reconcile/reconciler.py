@@ -33,7 +33,7 @@ _METRIC_TO_FIGURE_ID: dict[str, str] = {
 }
 
 
-@dataclass
+@dataclass(frozen=True)
 class ReconcileResult:
     figure: str
     expected_value: str
