@@ -1,5 +1,7 @@
 # InterOpera Compliance Reporting
 
+![CI](https://github.com/hdpolover/interopera-test/actions/workflows/ci.yml/badge.svg)
+
 Auditable, reproducible fund-compliance reporting backed by a Neo4j knowledge graph.
 Produces two firms' reports by config switch alone — no code edits, no LLM-generated
 numbers, every figure traceable to a graph path and a source-document chunk.
@@ -11,6 +13,8 @@ numbers, every figure traceable to a graph path and a source-document chunk.
 - **Docker** (with Compose v2 — `docker compose` not `docker-compose`)
 - **Optional:** `ANTHROPIC_API_KEY` — the system runs fully without a key; the narrative
   step falls back to a deterministic stub so all 13 figures and the firewall check still pass.
+- **Optional:** `ANTHROPIC_MODEL` — override the LLM model without touching source code
+  (default: `claude-haiku-4-5-20251001`). Set in `.env` when the model is deprecated.
 
 ---
 
@@ -67,6 +71,9 @@ grep -r "firm_a\|firm_b\|firm_A\|firm_B" src/compute/engine.py
 |---|---|---|---|
 | `config/firm_a.yaml` | `false` | `issuer` | `percent_1dp` |
 | `config/firm_b.yaml` | `true` | `parent_issuer` | `truncated_bps` |
+| `config/firm_c.yaml` | `false` | `parent_issuer` | `truncated_bps` |
+
+Firm C is a third independent configuration — distinct knob combination from both A and B — proving switching is not a two-firm coincidence. Run it with `--firm C`.
 
 ---
 
