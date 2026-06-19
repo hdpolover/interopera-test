@@ -1,6 +1,7 @@
 *.zip
 /extracted/
-out/
+out/*
+!out/.gitkeep
 __pycache__/
 .env
 .DS_Store
