@@ -25,7 +25,7 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 | 15 | Firewall checker | 5 | ✅ | fcffe9f | 22/22 | Approved; doesn't fail open — narrow allowlist, symmetric non-lossy normalization, covers value+util+limit, real FAIL path, no LLM import |
 | 16 | Report writer (xlsx) | 3 | ✅ | 7d31251 | 15/15 | Approved+fix; 13 template rows, Source=graph_path+citation, figures-only (Gate 3), cell-placement verified, deterministic |
 | 17 | Narrative writer (LLM-optional) | 3 | ✅ | e895345 | 23/23 | Approved+fix; keyless stub passes firewall, blank-key fallback, anthropic guarded, deterministic, no fabricated numbers |
-| 18 | Phase 5 evaluate command | 5 | ⬜ | — | — | reconcile + traceability + firewall, table+JSON |
+| 18 | Phase 5 evaluate command | 5 | ✅ | 36689ea | 20/20 | Approved+fix; ⭐ GENUINE e2e: Firm A 13/13 + Firm B 13/13 reconcile vs real answer keys (dual count guards), traceability + firewall pass both firms |
 | 19 | CLI wiring tests | infra | ⬜ | — | — | Typer, non-interactive, exit codes |
 | 20 | Determinism double-run test | 1 | ⬜ | — | — | diff figures.json → identical |
 | 21 | Full pipeline integration test | all | ⬜ | — | — | both firms end-to-end |
