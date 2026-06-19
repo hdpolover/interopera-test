@@ -58,3 +58,16 @@ def test_rule_chunk_has_all_fields():
     field_names = {f.name for f in dataclasses.fields(RuleChunk)}
     assert field_names == {"chunk_id", "source_doc", "page", "passage",
                            "passage_summary", "extracted_fields", "extraction_confidence"}
+
+def test_chunk_id_pins_to_known_sha256():
+    # sha256("hello") = 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+    # first 8 hex chars = "2cf24dba"
+    from src.ingestion.guidelines_parser import chunk_id_from_text
+    assert chunk_id_from_text("hello") == "2cf24dba"
+
+def test_stub_chunk_ids_are_distinct():
+    from src.ingestion.guidelines_parser import parse_guidelines
+    chunks = parse_guidelines(pdf_path=None, llm_client=None)
+    ids = [c.chunk_id for c in chunks]
+    assert len(set(ids)) == len(ids), f"Duplicate chunk_ids: {ids}"
+    assert len(ids) == 6

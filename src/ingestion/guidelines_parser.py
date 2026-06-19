@@ -5,7 +5,7 @@ When llm_client is None, returns deterministic stub chunks for the 6 known rule 
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional
 
 
