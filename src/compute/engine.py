@@ -96,10 +96,9 @@ class ComputeEngine:
             asset_classes = pred.get("asset_class_in", [])
             effective_pred: dict[str, Any] = {"asset_class_in": asset_classes}
             if include_fallen:
-                # extend to all IG corp too, filter by fallen angel flag in query
-                effective_pred["asset_class_in"] = asset_classes + [
-                    "Investment Grade Corporate Bonds"
-                ]
+                # The query's OR clause picks up fallen angels (downgraded_from IS NOT NULL
+                # AND credit_rating IN below_ig_ratings) regardless of asset class,
+                # so asset_class_in stays as-is (HY + SC only).
                 effective_pred["include_fallen_angels"] = True
             else:
                 effective_pred["include_fallen_angels"] = False
