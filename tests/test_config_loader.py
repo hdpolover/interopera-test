@@ -30,7 +30,8 @@ def test_load_config_firm_b():
 
 
 def test_missing_required_knob_raises_validation_error():
-    import tempfile, yaml
+    import tempfile
+    import yaml
     from src.compute.config_loader import load_config
     from pydantic import ValidationError
     # firm yaml missing non_ig.include_fallen_angels
@@ -73,7 +74,8 @@ def test_firm_a_hash_differs_from_firm_b():
 
 
 def test_invalid_group_key_raises():
-    import tempfile, yaml
+    import tempfile
+    import yaml
     from src.compute.config_loader import load_config
     from pydantic import ValidationError
     firm_yaml = {
@@ -93,7 +95,8 @@ def test_invalid_group_key_raises():
 
 
 def test_unknown_config_key_raises_validation_error():
-    import tempfile, yaml
+    import tempfile
+    import yaml
     from src.compute.config_loader import load_config
     from pydantic import ValidationError
     # Config with an extra unknown section alongside valid knobs

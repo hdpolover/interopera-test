@@ -1,7 +1,6 @@
 # tests/test_scaffold.py
 import yaml
 import os
-import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

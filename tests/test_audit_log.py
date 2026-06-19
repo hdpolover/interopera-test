@@ -115,7 +115,8 @@ def test_verify_chain_returns_true_for_clean_log(logger):
 def test_hash_chain_is_deterministic(logger):
     """Same events in the same order produce identical row_hash values."""
     import psycopg
-    import hashlib, json
+    import hashlib
+    import json
 
     run_id = str(uuid.uuid4())
     events = [

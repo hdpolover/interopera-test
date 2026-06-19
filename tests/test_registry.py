@@ -1,4 +1,3 @@
-import pytest
 
 
 def test_figure_registry_has_13_entries():

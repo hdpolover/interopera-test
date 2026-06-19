@@ -18,8 +18,6 @@ from rich.console import Console
 from rich.table import Table
 
 from src.cli.commands.replay_helpers import (
-    FIGURE_ID_TO_METRICS,
-    FIGURE_CONFIG_KNOBS,
     parse_numeric as _parse_numeric,
     print_delta_vs_answer_key as _print_delta,
     print_config_knobs as _print_config_knobs,

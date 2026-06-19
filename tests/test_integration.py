@@ -226,7 +226,6 @@ def test_audit_log_full_pipeline_run(loaded_driver, audit_logger):
     from src.compute.engine import ComputeEngine
     from src.reconcile.reconciler import reconcile, parse_answer_key_xlsx
     from src.report.writer import write_report
-    import openpyxl
 
     run_id = str(uuid.uuid4())
 

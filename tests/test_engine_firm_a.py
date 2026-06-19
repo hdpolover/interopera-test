@@ -1,7 +1,6 @@
 """Engine tests against 13 real holdings with Firm A config."""
 import os
 import pytest
-from decimal import Decimal
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NEO4J_URI = os.environ.get("NEO4J_TEST_URI", "bolt://localhost:7687")

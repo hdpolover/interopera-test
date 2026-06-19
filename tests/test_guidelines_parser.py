@@ -1,5 +1,3 @@
-import pytest
-import re
 
 def test_chunk_id_is_8_char_hex():
     from src.ingestion.guidelines_parser import chunk_id_from_text
@@ -54,7 +52,7 @@ def test_rule_chunk_has_all_fields():
     import dataclasses
     chunks = parse_guidelines(pdf_path=None, llm_client=None)
     assert len(chunks) > 0
-    chunk = chunks[0]
+    chunks[0]
     field_names = {f.name for f in dataclasses.fields(RuleChunk)}
     assert field_names == {"chunk_id", "source_doc", "page", "passage",
                            "passage_summary", "extracted_fields", "extraction_confidence"}

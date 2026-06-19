@@ -154,7 +154,8 @@ def test_firewall_result_dataclass():
 
 
 def test_firewall_no_llm_imports():
-    import ast, os
+    import ast
+    import os
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(repo_root, "src", "firewall", "checker.py")
     with open(path) as f:

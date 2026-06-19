@@ -107,7 +107,7 @@ def test_only_cor05_is_fallen_angel(loaded_graph):
             "include_fallen_angels": True,
         }
     )
-    ids = {r["instrument_id"] for r in results}
+    {r["instrument_id"] for r in results}
     fallen_angels = {
         r["instrument_id"] for r in results
         if r.get("downgraded_from") and r.get("asset_class") == "Investment Grade Corporate Bonds"

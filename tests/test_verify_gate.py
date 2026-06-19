@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import pytest
-from decimal import Decimal
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NEO4J_URI = os.environ.get("NEO4J_TEST_URI", "bolt://localhost:7687")
@@ -248,6 +247,6 @@ def test_other_figures_unaffected_by_broken_dv01_citation(graph_with_broken_cita
     sgs_spec = next(s for s in FIGURE_REGISTRY if s.id == "allocation_sgs")
     figure = engine.compute_figure(sgs_spec)
     assert figure.status != "ERROR", (
-        f"allocation_sgs should not be ERROR (its rule_type is allocation_limit, not dv01_limit)"
+        "allocation_sgs should not be ERROR (its rule_type is allocation_limit, not dv01_limit)"
     )
     assert figure.value == "35.0%"

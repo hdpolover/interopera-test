@@ -1,5 +1,4 @@
 """Tests for compute primitives. All math uses Decimal for exact assertions."""
-import pytest
 from decimal import Decimal
 
 
@@ -192,7 +191,8 @@ def test_sgd_dv01():
 
 def test_no_llm_imports_in_primitives():
     """Static import gate: primitives.py must not import LLM clients."""
-    import ast, os
+    import ast
+    import os
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(repo_root, "src", "compute", "primitives.py")
     with open(path) as f:

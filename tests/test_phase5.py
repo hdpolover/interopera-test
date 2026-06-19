@@ -4,7 +4,6 @@ These four unit tests cover the evaluate, reconcile, firewall, and traceability
 logic without requiring a running Neo4j or Postgres instance.
 """
 import os
-import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NEO4J_URI = os.environ.get("NEO4J_TEST_URI", "bolt://localhost:7687")

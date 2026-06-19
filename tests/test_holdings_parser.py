@@ -1,5 +1,4 @@
 import os
-import pytest
 from decimal import Decimal
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -50,7 +49,7 @@ def test_cor_03_is_gre_with_parent():
     assert cor03.parent_issuer == "Redhill Holdings"
 
 def test_market_value_is_decimal_not_float():
-    from src.ingestion.holdings_parser import parse_holdings, PositionRecord
+    from src.ingestion.holdings_parser import parse_holdings
     records = parse_holdings(CSV_PATH)
     for r in records:
         assert isinstance(r.market_value_sgd, Decimal), f"{r.instrument_id} market_value_sgd is not Decimal"
@@ -58,7 +57,7 @@ def test_market_value_is_decimal_not_float():
 
 def test_chunk_id_is_8_char_hex():
     from src.ingestion.holdings_parser import parse_holdings
-    records = parse_holdings(CSV_PATH)
+    parse_holdings(CSV_PATH)
     # chunk_id is on the parser module level, derived from CSV content
     from src.ingestion.holdings_parser import get_csv_chunk_id
     chunk_id = get_csv_chunk_id(CSV_PATH)

@@ -1,7 +1,6 @@
 """Tests for 'generate-dsl' and 'preview-config' CLI commands (Bonus 2)."""
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
