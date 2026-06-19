@@ -103,10 +103,18 @@ def run_cmd(
     from src.report.writer import write_report
 
     firm_id = f"firm_{firm.lower()}"
-    config = load_config(
-        str(CONFIG_DIR / "base.yaml"),
-        str(CONFIG_DIR / f"{firm_id}.yaml"),
-    )
+    firm_yaml = CONFIG_DIR / f"{firm_id}.yaml"
+    if not firm_yaml.exists():
+        typer.echo(f"Error: no config found for firm '{firm}' (expected {firm_yaml})", err=True)
+        raise typer.Exit(code=1)
+    try:
+        config = load_config(
+            str(CONFIG_DIR / "base.yaml"),
+            str(firm_yaml),
+        )
+    except Exception as exc:
+        typer.echo(f"Error: failed to load config for firm '{firm}': {exc}", err=True)
+        raise typer.Exit(code=1)
     driver = _get_driver()
     engine = ComputeEngine(driver, config)
     run_id = str(uuid.uuid4())
@@ -148,10 +156,18 @@ def reconcile(
     from src.reconcile.reconciler import reconcile as do_reconcile, parse_answer_key_xlsx, parse_expected_yaml
 
     firm_id = f"firm_{firm.lower()}"
-    config = load_config(
-        str(CONFIG_DIR / "base.yaml"),
-        str(CONFIG_DIR / f"{firm_id}.yaml"),
-    )
+    firm_yaml = CONFIG_DIR / f"{firm_id}.yaml"
+    if not firm_yaml.exists():
+        typer.echo(f"Error: no config found for firm '{firm}' (expected {firm_yaml})", err=True)
+        raise typer.Exit(code=1)
+    try:
+        config = load_config(
+            str(CONFIG_DIR / "base.yaml"),
+            str(firm_yaml),
+        )
+    except Exception as exc:
+        typer.echo(f"Error: failed to load config for firm '{firm}': {exc}", err=True)
+        raise typer.Exit(code=1)
     driver = _get_driver()
     figures = ComputeEngine(driver, config).run_all()
     driver.close()
@@ -195,10 +211,18 @@ def evaluate(
     from src.narrative.narrator import Narrator
 
     firm_id = f"firm_{firm.lower()}"
-    config = load_config(
-        str(CONFIG_DIR / "base.yaml"),
-        str(CONFIG_DIR / f"{firm_id}.yaml"),
-    )
+    firm_yaml = CONFIG_DIR / f"{firm_id}.yaml"
+    if not firm_yaml.exists():
+        typer.echo(f"Error: no config found for firm '{firm}' (expected {firm_yaml})", err=True)
+        raise typer.Exit(code=1)
+    try:
+        config = load_config(
+            str(CONFIG_DIR / "base.yaml"),
+            str(firm_yaml),
+        )
+    except Exception as exc:
+        typer.echo(f"Error: failed to load config for firm '{firm}': {exc}", err=True)
+        raise typer.Exit(code=1)
     driver = _get_driver()
     figures = ComputeEngine(driver, config).run_all()
     driver.close()

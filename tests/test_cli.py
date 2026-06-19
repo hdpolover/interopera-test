@@ -83,7 +83,7 @@ def test_cli_has_narrate_command():
 def test_ingest_help():
     result = runner.invoke(app, ["ingest", "--help"])
     assert result.exit_code == 0
-    assert "help" in result.output.lower() or "usage" in result.output.lower()
+    assert "ingest" in result.output.lower()
 
 
 def test_build_graph_help():
@@ -217,3 +217,23 @@ def test_cli_reconcile_firm_b_requires_neo4j():
         pytest.skip("Neo4j not in test environment")
     result = runner.invoke(app, ["reconcile", "--firm", "B"])
     assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Failure-path exit-code tests — invalid firm must exit non-zero
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_invalid_firm_exits_nonzero():
+    result = runner.invoke(app, ["evaluate", "--firm", "DOES_NOT_EXIST"])
+    assert result.exit_code != 0
+
+
+def test_reconcile_invalid_firm_exits_nonzero():
+    result = runner.invoke(app, ["reconcile", "--firm", "DOES_NOT_EXIST"])
+    assert result.exit_code != 0
+
+
+def test_run_invalid_firm_exits_nonzero():
+    result = runner.invoke(app, ["run", "--firm", "DOES_NOT_EXIST"])
+    assert result.exit_code != 0
