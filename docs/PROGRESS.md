@@ -19,7 +19,7 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 | 9 | Compute engine — Firm A figures | 3 ⭐ | ✅ | e8ecfe4 | 19/19 | Approved+fix; 13 figures exact, non-IG path exact, citations PROVEN populated+distinct, DI gate; I-2→Task10 |
 | 10 | Verify gate | 1/2 | ✅ | 8379f09 | 42/42 | Approved; gate ERROR on pending, approve→VERIFIED end-to-end, missing-citation→ERROR (I-2 closed); I-A test-fragility → final triage |
 | 11 | Config engine — Firm B figures | 4 ⭐ | ✅ | 0aaa517 | 14/14 (+19 A) | Approved+fix; all 13 Firm B figures (21%/13%/bps) by config only, no firm branch (grep-proven); engine bug fix (fallen-angel over-select) firm-agnostic |
-| 12 | LLM containment gates (6 tests) | 3 | ⬜ | — | — | static import, DI, report-from-figures, etc. |
+| 12 | LLM containment gates (6 tests) | 3 | ✅ | 03781f8 | 6/6 | Approved; all gates genuinely effective (AST scans, live sig inspect, behavioral); created stubs writer/checker/reconciler → 14/15/16 replace |
 | 13 | Audit log (append-only + hash chain) | audit | ⬜ | — | — | REVOKE + trigger + chain verify |
 | 14 | Reconciler (Firm A exact + Firm B config-only) | 3/4/5 | ⬜ | — | — | compares value + utilization + status |
 | 15 | Firewall checker | 5 | ⬜ | — | — | narrative numbers ⊆ computed; allowlist documented |
