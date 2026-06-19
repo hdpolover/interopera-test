@@ -23,7 +23,7 @@ must be reproducible, traceable through a knowledge graph to its source passage,
 |---|---|---|
 | 1 | **Reproducible** — same input ⇒ identical figures | `Decimal` math, sorted traversals, NAV computed once, fixed rounding, `verify-determinism` double-run diff |
 | 2 | **Traceable through the graph** — figure → graph path → source chunk | Selectors are graph traversals; `graph_path` generated from the *actual* matched path; citation = a real `SourceChunk` node reached via `DERIVED_FROM` |
-| 3 | **No LLM numbers** — LLM writes narrative only | Compute and narrative are separate modules meeting one-directionally; firewall check verifies every narrative number ∈ computed set |
+| 3 | **No LLM numbers** — LLM writes narrative only | Six containment gates (§3.1): static import gate, DI gate, report-from-figures, output firewall, human-only approval, pure-code checks |
 | 4 | **Reconcile Firm A** | `reconcile` parses `firm_A_answer_key.xlsx`, per-figure pass/fail + delta, exact match expected |
 | 5 | **Reconfigure to Firm B, no code edit** | Engine has zero firm bias; both firms are equal config files; `grep` proves no `if firm==B` exists |
 
@@ -102,6 +102,35 @@ docs → ingest → candidate graph ──[human verify gate]──> Neo4j
                               └──> narrative (LLM, optional) ──> firewall check
             (audit log records every stage in Postgres, append-only)
 ```
+
+## 3.1 LLM containment (defense-in-depth for constraint 3)
+
+The LLM must be *structurally absent* from every number-and-verification path — not merely
+firewalled at the output. Six gates, each enforced by code a reviewer can run:
+
+**Producing numbers:**
+1. **Static import gate (build-time, provable).** A test scans `src/compute/` and fails the build
+   if it imports any LLM client (`anthropic`, `openai`, `httpx`, …). The number path cannot call
+   an LLM because the import is not there. Provable by grep + test.
+2. **Dependency-injection gate (runtime).** The compute engine constructor takes only
+   `(graph, config)` — no LLM handle is ever passed in. There is no object to call. A test asserts
+   the engine's dependency set contains no LLM client.
+3. **Report cells come from `figures.json`, never narrative.** The xlsx writer reads computed
+   figures; narrative is a separate text field. Even the report's numbers bypass the LLM entirely.
+4. **Output firewall** (see §7): every narrative number ∈ computed set, else FAIL.
+
+**Verifying / approving:**
+5. **Human-only approval.** Flipping a node to `VERIFIED` is a human/CLI action; the LLM cannot
+   approve its own extraction. `extraction_confidence` alone cannot auto-pass — **deterministic
+   structural validation** (`min<max`, numeric, required fields) is a *hard* requirement, so an
+   over-confident LLM extraction is blocked by code, not trust.
+6. **All Phase 5 checks are pure code.** Reconciliation, traceability, and firewall are deterministic
+   comparisons — never "ask the LLM if these match." LLM-judged verification would itself be a
+   constraint-3 failure.
+
+**Boundary, stated crisply:** the LLM may *propose graph structure* (human-gated) and *write prose*
+(firewalled). It may **never** produce/round/alter a figure, populate a report cell, approve a node,
+or judge a check. Constraint 3 is thereby a property enforced by tests, not an assertion.
 
 ## 4. Knowledge graph model (Phase 2)
 
