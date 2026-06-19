@@ -210,3 +210,77 @@ def test_write_report_is_deterministic():
     finally:
         for p in paths:
             os.unlink(p)
+
+
+def test_write_report_cells_land_in_correct_row():
+    """Each figure's cells must land in its own metric row, not a neighbor's.
+
+    Tests that Value, Utilization, Status cells are placed in the correct row
+    by creating one distinct Figure per template row with recognizable values,
+    writing the report, and asserting each value appears in its own metric's row.
+    """
+    from src.report.writer import write_report, _TEMPLATE_ROWS
+    import openpyxl
+
+    # Build one Figure for each of the 13 template rows with distinct values
+    figures = []
+    for idx, (section, metric, fig_id) in enumerate(_TEMPLATE_ROWS):
+        figures.append(
+            Figure(
+                figure=fig_id,
+                value=f"V{idx}",
+                utilization=f"U{idx}",
+                status=f"S{idx}",
+                limit=f"L{idx}",
+                graph_path=f"GP{idx}",
+                citation={"chunk_id": f"C{idx}"},
+            )
+        )
+
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+        path = f.name
+    try:
+        write_report(figures, path)
+        wb = openpyxl.load_workbook(path)
+        ws = wb.active
+
+        # For each template row, verify its cells land in the correct row
+        for idx, (section, metric, fig_id) in enumerate(_TEMPLATE_ROWS):
+            # Find the row by metric name (column index 1)
+            found_row = None
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                if row[1] == metric:
+                    found_row = row
+                    break
+
+            assert found_row is not None, f"Metric '{metric}' not found in sheet"
+
+            # Column indices: Section=0, Metric=1, Value=2, Limit=3, Utilization=4, Status=5, Source=6
+            expected_value = f"V{idx}"
+            expected_utilization = f"U{idx}"
+            expected_status = f"S{idx}"
+            expected_limit = f"L{idx}"
+
+            actual_value = found_row[2]
+            actual_utilization = found_row[4]
+            actual_status = found_row[5]
+            actual_limit = found_row[3]
+
+            assert actual_value == expected_value, (
+                f"Metric '{metric}': Value mismatch. "
+                f"Expected {expected_value}, got {actual_value}"
+            )
+            assert actual_utilization == expected_utilization, (
+                f"Metric '{metric}': Utilization mismatch. "
+                f"Expected {expected_utilization}, got {actual_utilization}"
+            )
+            assert actual_status == expected_status, (
+                f"Metric '{metric}': Status mismatch. "
+                f"Expected {expected_status}, got {actual_status}"
+            )
+            assert actual_limit == expected_limit, (
+                f"Metric '{metric}': Limit mismatch. "
+                f"Expected {expected_limit}, got {actual_limit}"
+            )
+    finally:
+        os.unlink(path)
