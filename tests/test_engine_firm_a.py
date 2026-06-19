@@ -173,6 +173,15 @@ def test_figures_have_citation(firm_a_figures):
         assert isinstance(fig.citation, dict), f"citation not a dict for {fig.figure}"
 
 
+def test_citations_are_populated(firm_a_figures):
+    """Citations must be non-empty (chunk_id and source_doc populated) across all rule areas."""
+    for fid in ["allocation_sgs", "aggregate_non_ig_exposure", "largest_gre_issuer",
+                "liquid_assets_ratio", "portfolio_duration", "portfolio_dv01"]:
+        cit = firm_a_figures[fid].citation
+        assert cit.get("chunk_id"), f"{fid} has empty chunk_id: {cit}"
+        assert cit.get("source_doc"), f"{fid} has empty source_doc: {cit}"
+
+
 def test_engine_constructor_has_no_llm_param():
     import inspect
     from src.compute.engine import ComputeEngine
@@ -203,8 +212,7 @@ def test_different_figures_have_different_citations(firm_a_figures):
     # Both must be non-empty dicts with source_doc
     assert isinstance(sgs_citation, dict)
     assert isinstance(dv01_citation, dict)
-    # If both resolved to real chunks, they should differ (different rule types → different chunks)
-    if sgs_citation.get("chunk_id") and dv01_citation.get("chunk_id"):
-        assert sgs_citation["chunk_id"] != dv01_citation["chunk_id"], (
-            "Different figures should cite different SourceChunk nodes"
-        )
+    # Different rule types should cite different chunks
+    assert sgs_citation["chunk_id"] != dv01_citation["chunk_id"], (
+        "Different figures should cite different SourceChunk nodes"
+    )
