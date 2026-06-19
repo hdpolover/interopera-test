@@ -1,13 +1,36 @@
 # src/reconcile/reconciler.py
-"""Reconcile computed figures against firm answer keys."""
+"""Reconcile computed figures against firm answer keys.
+
+Pure deterministic code — no LLM library imports (Gate 6).
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import yaml
 
 from src.compute.registry import Figure
+
+
+# Mapping from Metric column value in firm_A_answer_key.xlsx → figure_id
+_METRIC_TO_FIGURE_ID: dict[str, str] = {
+    "Singapore Government Securities":       "allocation_sgs",
+    "MAS Bills":                             "allocation_mas_bills",
+    "Investment Grade Corporate Bonds":      "allocation_ig_corp",
+    "High Yield Bonds":                      "allocation_high_yield",
+    "Foreign Currency Bonds (hedged)":       "allocation_fx_bonds",
+    "Foreign Currency Bonds":               "allocation_fx_bonds",
+    "Structured Credit (ABS/MBS)":          "allocation_structured_credit",
+    "Structured Credit":                    "allocation_structured_credit",
+    "Cash & Cash Equivalents":              "allocation_cash",
+    "Aggregate non-IG exposure":            "aggregate_non_ig_exposure",
+    "Largest single corporate issuer":      "largest_single_corporate_issuer",
+    "Largest GRE issuer":                   "largest_gre_issuer",
+    "Liquid assets ratio":                  "liquid_assets_ratio",
+    "Portfolio modified duration":          "portfolio_duration",
+    "Portfolio duration":                   "portfolio_duration",
+    "Portfolio DV01":                       "portfolio_dv01",
+}
 
 
 @dataclass
@@ -24,53 +47,105 @@ class ReconcileResult:
 
 
 def parse_answer_key_xlsx(xlsx_path: str) -> dict[str, dict]:
-    """Parse Firm A answer key xlsx → {figure_id: {value, status}}."""
+    """Parse Firm A answer key xlsx → {figure_id: {value, utilization, status}}.
+
+    Handles columns: Section, Metric, Value, Limit, Utilization, Status, Source.
+    Maps Metric names to figure_ids via _METRIC_TO_FIGURE_ID.
+    Treats None/empty Utilization cell as 'n/a'.
+    """
     import openpyxl
     wb = openpyxl.load_workbook(xlsx_path, read_only=True)
     ws = wb.active
     result: dict[str, dict] = {}
-    headers = None
+    headers: list[str] | None = None
+
     for row in ws.iter_rows(values_only=True):
         if headers is None:
-            headers = [str(c).strip() if c else "" for c in row]
+            headers = [str(c).strip() if c is not None else "" for c in row]
             continue
-        if row[0] is None:
+        if all(c is None for c in row):
             continue
         row_dict = dict(zip(headers, row))
-        fig_id = str(row_dict.get("figure_id", "")).strip()
-        if fig_id:
-            result[fig_id] = {
-                "value": str(row_dict.get("value", "")).strip(),
-                "status": str(row_dict.get("status", "")).strip(),
-            }
+        metric = str(row_dict.get("Metric", "") or "").strip()
+        fig_id = _METRIC_TO_FIGURE_ID.get(metric)
+        if not fig_id:
+            continue
+
+        raw_util = row_dict.get("Utilization")
+        if raw_util is None or str(raw_util).strip().lower() in ("", "none", "n/a"):
+            utilization = "n/a"
+        else:
+            utilization = str(raw_util).strip()
+
+        result[fig_id] = {
+            "value":       str(row_dict.get("Value", "") or "").strip(),
+            "utilization": utilization,
+            "status":      str(row_dict.get("Status", "") or "").strip(),
+        }
     return result
 
 
 def parse_expected_yaml(yaml_path: str) -> dict[str, dict]:
-    """Parse firm_b_expected.yaml → {figure_id: {value, status}}."""
+    """Parse firm_b_expected.yaml → {figure_id: {value, utilization, status}}.
+
+    Expects YAML structure:
+      figures:
+        <figure_id>:
+          value: "..."
+          utilization: "..."
+          status: "..."
+    """
     with open(yaml_path) as f:
         data = yaml.safe_load(f)
     return data.get("figures", {})
 
 
 def reconcile(figures: list[Figure], expected: dict[str, dict]) -> list[ReconcileResult]:
-    """Per-figure exact match on value+utilization+status. Returns list of ReconcileResult."""
+    """Per-figure exact match on value + utilization + status.
+
+    Args:
+        figures: Computed Figure objects from ComputeEngine.run_all().
+        expected: Dict mapping figure_id → {value, utilization, status}.
+                  utilization key is optional; missing → treated as 'n/a'.
+
+    Returns:
+        List of ReconcileResult, one per figure_id in expected (sorted).
+        Passed when computed value == expected value AND
+                    computed utilization == expected utilization AND
+                    computed status == expected status.
+        Delta string contains mismatch details when not passed.
+    """
     results: list[ReconcileResult] = []
-    computed_map = {f.figure: f for f in figures}
-    all_ids = set(expected.keys()) | set(computed_map.keys())
-    for fig_id in sorted(all_ids):
-        exp = expected.get(fig_id, {})
+    computed_map: dict[str, Figure] = {f.figure: f for f in figures}
+
+    for fig_id in sorted(expected.keys()):
+        exp = expected[fig_id]
         comp = computed_map.get(fig_id)
-        exp_val = exp.get("value", "MISSING")
-        exp_util = exp.get("utilization", "MISSING")
-        exp_status = exp.get("status", "MISSING")
-        comp_val = comp.value if comp else "MISSING"
-        comp_util = comp.utilization if comp else "MISSING"
-        comp_status = comp.status if comp else "MISSING"
-        passed = (exp_val == comp_val and exp_util == comp_util and exp_status == comp_status)
+
+        exp_val = str(exp.get("value", "MISSING")).strip()
+        exp_util = str(exp.get("utilization", "n/a")).strip()
+        exp_status = str(exp.get("status", "MISSING")).strip()
+
+        comp_val = comp.value if comp is not None else "MISSING"
+        comp_util = comp.utilization if comp is not None else "MISSING"
+        comp_status = comp.status if comp is not None else "MISSING"
+
+        value_match = exp_val == comp_val
+        util_match = exp_util == comp_util
+        status_match = exp_status == comp_status
+        passed = value_match and util_match and status_match
+
         delta = ""
         if not passed:
-            delta = f"expected ({exp_val}, {exp_util}, {exp_status}), got ({comp_val}, {comp_util}, {comp_status})"
+            parts = []
+            if not value_match:
+                parts.append(f"value: expected={exp_val!r} got={comp_val!r}")
+            if not util_match:
+                parts.append(f"utilization: expected={exp_util!r} got={comp_util!r}")
+            if not status_match:
+                parts.append(f"status: expected={exp_status!r} got={comp_status!r}")
+            delta = "; ".join(parts)
+
         results.append(ReconcileResult(
             figure=fig_id,
             expected_value=exp_val,
@@ -82,4 +157,5 @@ def reconcile(figures: list[Figure], expected: dict[str, dict]) -> list[Reconcil
             delta=delta,
             passed=passed,
         ))
+
     return results
