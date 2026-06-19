@@ -384,6 +384,24 @@ default run completes end-to-end (keeps "does it run" green). To prove the gate 
 `ingest` · `build-graph` · `verify-graph [--approve]` · `run --firm A|B` · `reconcile --firm A|B` ·
 `evaluate --firm A|B` (Phase 5: reconcile+trace+firewall) · `verify-determinism` · `narrate` · `viewer`.
 
+### CLI conventions (decided)
+**Non-interactive and scriptable — interactive is an anti-goal.** The evaluator runs headless
+(`docker compose up`) and runs scripted checks (run-twice-diff, trace a figure, switch firm). Prompts
+or wizards would break non-TTY automation and reproducibility, which an audit tool must never do.
+
+- **Library:** Typer (click-based) — typed subcommands, auto `--help`, tiny dep. `rich` optional for
+  the reconciliation table, with a plain fallback in non-TTY so compose logs stay clean.
+- **`--json` on every reporting command** — machine-parseable output alongside the human table.
+- **Exit codes:** non-zero when reconcile or firewall fails → the evaluator can gate in CI.
+- **Verify gate stays flag-based**, never a prompt: `verify-graph --approve <id>` / `--approve-all`.
+  Reason: approval must be automatable and reproducible; an interactive "approve? y/n" would make a
+  run non-deterministic and un-scriptable.
+- **Polish ROI goes to the `evaluate`/`reconcile` table** (the surface the evaluator reads): clean
+  per-figure `PASS/FAIL` + delta column. Everything else stays boring and legible.
+- **Determinism boundary:** the determinism diff runs on `figures.json`, not stdout, so pretty
+  terminal output is fine — artifacts (`figures.json`, `report.xlsx`) stay byte-stable and are never
+  diffed against terminal output.
+
 ### Build order (TDD, one reviewable unit at a time)
 | # | Step | Phase / constraint |
 |---|---|---|
