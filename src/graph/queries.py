@@ -48,12 +48,12 @@ _POSITION_COLUMNS = """
 """
 
 
-def _row_to_dict(record) -> dict[str, Any]:
+def _row_to_dict(record: Any) -> dict[str, Any]:
     """Convert a Neo4j Record to a plain Python dict."""
     return dict(record)
 
 
-def positions_in_asset_class(driver, ac: str) -> list[dict[str, Any]]:
+def positions_in_asset_class(driver: Any, ac: str) -> list[dict[str, Any]]:
     """Return all positions in the given asset class, sorted by instrument_id."""
     with driver.session() as session:
         result = session.run(
@@ -67,7 +67,7 @@ def positions_in_asset_class(driver, ac: str) -> list[dict[str, Any]]:
         return [_row_to_dict(r) for r in result]
 
 
-def positions_matching(driver, predicate: dict[str, Any]) -> list[dict[str, Any]]:
+def positions_matching(driver: Any, predicate: dict[str, Any]) -> list[dict[str, Any]]:
     """Return positions matching the given predicate dict.
 
     Predicate keys:
@@ -118,7 +118,7 @@ def positions_matching(driver, predicate: dict[str, Any]) -> list[dict[str, Any]
         return [_row_to_dict(r) for r in result]
 
 
-def positions_by_issuer(driver, group_key: str) -> dict[str, list[dict[str, Any]]]:
+def positions_by_issuer(driver: Any, group_key: str) -> dict[str, list[dict[str, Any]]]:
     """Return positions grouped by issuer or parent_issuer.
 
     group_key values:
@@ -160,7 +160,7 @@ def positions_by_issuer(driver, group_key: str) -> dict[str, list[dict[str, Any]
     return groups
 
 
-def liquid_positions(driver) -> list[dict[str, Any]]:
+def liquid_positions(driver: Any) -> list[dict[str, Any]]:
     """Return positions in liquid asset classes (SGS, MAS Bills, Cash), sorted by instrument_id."""
     with driver.session() as session:
         result = session.run(
@@ -175,7 +175,7 @@ def liquid_positions(driver) -> list[dict[str, Any]]:
         return [_row_to_dict(r) for r in result]
 
 
-def all_positions(driver) -> list[dict[str, Any]]:
+def all_positions(driver: Any) -> list[dict[str, Any]]:
     """Return all Position nodes sorted by instrument_id."""
     with driver.session() as session:
         result = session.run(
@@ -188,7 +188,7 @@ def all_positions(driver) -> list[dict[str, Any]]:
         return [_row_to_dict(r) for r in result]
 
 
-def list_pending_nodes(driver) -> list[dict[str, Any]]:
+def list_pending_nodes(driver: Any) -> list[dict[str, Any]]:
     """Return all nodes with status = 'PENDING_REVIEW'.
 
     Returns dicts with: labels, node_id, status, confidence.
@@ -207,7 +207,7 @@ def list_pending_nodes(driver) -> list[dict[str, Any]]:
         return [_row_to_dict(r) for r in result]
 
 
-def approve_node(driver, node_id: str, actor: str) -> None:
+def approve_node(driver: Any, node_id: str, actor: str) -> None:
     """Flip a PENDING_REVIEW node to VERIFIED.
 
     Raises ValueError if actor is empty or whitespace-only — every approval
@@ -235,7 +235,7 @@ def approve_node(driver, node_id: str, actor: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def limit_node(driver, ref: str) -> dict[str, Any]:
+def limit_node(driver: Any, ref: str) -> dict[str, Any]:
     """Return a Limit node by ref, or empty dict if not found."""
     with driver.session() as session:
         result = session.run(
@@ -246,7 +246,7 @@ def limit_node(driver, ref: str) -> dict[str, Any]:
         return dict(record["l"]) if record else {}
 
 
-def aggregate_node(driver, name: str) -> dict[str, Any]:
+def aggregate_node(driver: Any, name: str) -> dict[str, Any]:
     """Return an Aggregate node by name, or empty dict if not found."""
     with driver.session() as session:
         result = session.run(
@@ -257,7 +257,7 @@ def aggregate_node(driver, name: str) -> dict[str, Any]:
         return dict(record["a"]) if record else {}
 
 
-def threshold_node(driver, metric: str) -> dict[str, Any]:
+def threshold_node(driver: Any, metric: str) -> dict[str, Any]:
     """Return a Threshold node by metric, or empty dict if not found."""
     with driver.session() as session:
         result = session.run(
@@ -269,7 +269,7 @@ def threshold_node(driver, metric: str) -> dict[str, Any]:
 
 
 def retrieve_passages_for_narrative(
-    driver, figures: list
+    driver: Any, figures: list
 ) -> list[dict[str, Any]]:
     """Retrieve SourceChunk passages for narrative grounding.
 
@@ -302,8 +302,8 @@ def retrieve_passages_for_narrative(
                 cid = row.get("chunk_id")
                 if cid and cid not in seen:
                     seen[cid] = row
-    except Exception:
-        # If the graph has no such nodes or query fails, fall through to local
+    except Exception:  # noqa: BLE001 — deliberate fallthrough; graph may lack chunk nodes
+        # If the graph has no such nodes or query fails, fall through to local retrieval
         pass
 
     # Local retrieval — pull citation from each figure's citation dict
@@ -323,7 +323,30 @@ def retrieve_passages_for_narrative(
     return list(seen.values())
 
 
-def breach_action_for_metric(driver, metric: str) -> dict[str, Any]:
+def list_all_breach_actions(driver: Any) -> list[dict[str, Any]]:
+    """Return all RiskMetric nodes with their breach actions and owners, ordered by metric name.
+
+    Returns list of dicts, each with: metric, limit, monitoring_frequency, breach_action, owner.
+    Returns empty list if no RiskMetric nodes exist.
+    """
+    with driver.session() as session:
+        result = session.run(
+            """
+            MATCH (rm:RiskMetric)
+                  -[:HAS_BREACH_ACTION]->(ba:BreachAction)
+                  -[:NOTIFIES]->(o:Owner)
+            RETURN rm.metric              AS metric,
+                   rm.limit               AS limit,
+                   rm.monitoring_frequency AS monitoring_frequency,
+                   ba.action              AS breach_action,
+                   o.name                 AS owner
+            ORDER BY rm.metric
+            """
+        )
+        return [_row_to_dict(r) for r in result]
+
+
+def breach_action_for_metric(driver: Any, metric: str) -> dict[str, Any]:
     """Multi-hop query: RiskMetric -> BreachAction -> Owner.
 
     Returns dict with: metric, limit, monitoring_frequency, breach_action, owner.

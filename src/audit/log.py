@@ -129,5 +129,34 @@ class AuditLogger:
                 return False
         return True
 
+    def list_events(self, limit: int = 20) -> list[dict]:
+        """Return the last `limit` audit events in insertion order.
+
+        Each dict contains: id, run_id, event_type, actor, ts, payload, config_hash, row_hash.
+        """
+        rows = self._conn.execute(
+            "SELECT id, run_id, event_type, actor, ts, payload, config_hash, row_hash "
+            "FROM audit_event ORDER BY id ASC"
+        ).fetchall()
+        # Take the last `limit` rows from the full ordered list
+        tail = rows[-limit:] if len(rows) > limit else rows
+        events = []
+        for id_, run_id, event_type, actor, ts, payload_raw, config_hash, row_hash in tail:
+            if isinstance(payload_raw, str):
+                payload = json.loads(payload_raw)
+            else:
+                payload = payload_raw
+            events.append({
+                "id": id_,
+                "run_id": run_id,
+                "event_type": event_type,
+                "actor": actor,
+                "ts": ts,
+                "payload": payload,
+                "config_hash": config_hash,
+                "row_hash": row_hash,
+            })
+        return events
+
     def close(self) -> None:
         self._conn.close()

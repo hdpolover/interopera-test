@@ -7,7 +7,7 @@
 
 This report documents live verification of the InterOpera fund compliance reporting system. The system is a fully automated pipeline that ingests portfolio holdings and regulatory guidelines, builds a Neo4j knowledge graph, computes 13 compliance figures against MAS-style fund investment limits, generates a narrative, and exports results to Excel with a full audit trail in Postgres.
 
-**315/315 tests pass.** All 13 figures compute correctly for both Firm A (13/13 reconcile PASS vs answer key) and Firm B (13/13 PASS). Three bonus features are implemented: replay viewer, configuration DSL with live preview, and narrative source retrieval.
+**315/315 tests pass.** All 13 figures compute correctly for both Firm A (13/13 reconcile PASS vs answer key) and Firm B (13/13 PASS). Three bonus features are implemented: replay viewer, configuration DSL with live preview, and narrative source retrieval. Two additional CLI commands expose Phase 2 multi-hop graph traversal (`query-metric`) and audit log visibility (`show-audit-log`). Excel reports now include status-based row highlighting and auto-fit column widths.
 
 **One notable finding:** When the `ANTHROPIC_API_KEY` environment variable is present, `evaluate` invokes the real LLM for narrative generation. The LLM occasionally introduces numbers not in the computed set (e.g. `100%`, `1.0%`, `1`, `2`), causing the firewall gate inside `evaluate` to report FAIL. This is the firewall functioning correctly — it is catching genuine LLM hallucinations. In stub mode (no API key), all Phase 5 checks PASS. The brief's intent (test the firewall works) is satisfied; the system demonstrates that the firewall correctly blocks non-computed numbers from reaching the report.
 
@@ -81,6 +81,9 @@ This report documents live verification of the InterOpera fund compliance report
 | **Config DSL** | Serialize firm config as commented DSL to stdout | `cli/main.py:generate_dsl()` | **IMPLEMENTED** |
 | **DSL live preview** | Parse DSL, validate with Pydantic, run engine, compare to Firm A baseline | `cli/main.py:preview_config()` | **IMPLEMENTED** |
 | **Source retrieval for narrative** | Retrieve SourceChunk passages from Neo4j; inject into LLM prompt | `queries.py:retrieve_passages_for_narrative()`, `narrator.py:_llm_narrative()` | **IMPLEMENTED** |
+| **`query-metric` CLI** | Expose Phase 2 multi-hop traversal as CLI command; single metric or all-6 table | `cli/main.py:query_metric()`, `queries.py:list_all_breach_actions()` | **IMPLEMENTED** |
+| **`show-audit-log` CLI** | Display audit events with hash prefix; `--verify` triggers full chain check | `cli/main.py:show_audit_log()`, `log.py:list_events()` | **IMPLEMENTED** |
+| **Excel report polish** | BREACH rows red, AT LIMIT amber, OK green; bold header; auto-fit column widths | `src/report/writer.py` (openpyxl PatternFill + column_dimensions) | **IMPLEMENTED** |
 
 ---
 
@@ -108,7 +111,7 @@ config/firm_b.yaml ────┘                                              
                                                           (Postgres append-only)
 ```
 
-**CLI Commands (all from `src/cli/main.py`)**
+**CLI Commands (all from `src/cli/main.py`) — 13 total**
 
 | Command | Description |
 |---|---|
@@ -123,6 +126,8 @@ config/firm_b.yaml ────┘                                              
 | `replay --figure <name> --firm <A\|B>` | Show graph path, source passage, delta vs answer key, and config rules for one figure |
 | `generate-dsl --firm <A\|B>` | Print current firm config as a commented DSL to stdout |
 | `preview-config --dsl <file>` | Parse DSL, validate, run compute engine, display vs Firm A baseline |
+| `query-metric --metric <name> \| --all` | Multi-hop query: RiskMetric → BreachAction → Owner for one or all 6 metrics |
+| `show-audit-log [--last N] [--verify]` | Display audit log events; optionally verify SHA-256 hash chain integrity |
 
 ---
 
@@ -319,26 +324,60 @@ All 11 node types present. The six Phase 2 entity types (`RiskMetric`, `Threshol
 
 **Important:** `build-graph` populates all node types including `RiskMetric/Threshold/BreachAction/Owner` in a single run via `load_risk_metrics()`. If the graph is not cleared before a re-run, node counts accumulate (existing nodes are MERGEd idempotently), so a freshly cleared graph is the canonical way to verify counts.
 
-### 3.9 Multi-Hop Breach Query (Phase 2 key requirement)
+### 3.9 Phase 2 — Multi-Hop Query (Live)
+
+The `query-metric` command exposes the `RiskMetric → BreachAction → Owner` multi-hop traversal as a CLI surface. The brief's example — *"what is the breach action if portfolio duration exceeds its limit, and who is notified?"* — is answered directly:
 
 ```text
-portfolio_duration: breach='PM notification within 1h', owner='Portfolio Manager'
-portfolio_dv01: breach='Risk Committee alert', owner='Risk Committee'
-value_at_risk_95_10d: breach='CRO review required', owner='Chief Risk Officer'
-expected_shortfall_97_5: breach='Board reporting if exceeded', owner='Board Risk Committee'
-interest_rate_sensitivity: breach='Strategy review', owner='Investment Management Committee'
-tracking_error_vs_benchmark: breach='IPS review triggered', owner='IPS Committee'
+$ query-metric --metric portfolio_duration
+Metric:        portfolio_duration
+Limit:         2.0-6.5 years
+Monitoring:    Daily
+Breach Action: PM notification within 1h
+Owner:         Portfolio Manager
 ```
 
-The brief's example — *"what is the breach action if portfolio duration exceeds its limit, and who is notified?"* — is answered by traversing `(RiskMetric {metric: 'portfolio_duration'})-[:HAS_BREACH_ACTION]->(BreachAction)-[:NOTIFIES]->(Owner)`: breach action **"PM notification within 1h"**, notified to **"Portfolio Manager"**. All 6 metrics are queryable via `breach_action_for_metric()` in `src/graph/queries.py:326`.
-
-### 3.10 Audit Log Chain Verification
+All 6 metrics via `query-metric --all`:
 
 ```text
-Audit chain valid: True
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Metric                         ┃ Limit                ┃ Monitoring ┃ Breach Action                   ┃ Owner                       ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ expected_shortfall_97_5        │ <= 3.8% of NAV       │ Weekly     │ Board reporting if exceeded     │ Board Risk Committee        │
+│ interest_rate_sensitivity      │ <= +/-12% NAV for    │ Monthly    │ Strategy review                 │ Investment Management       │
+│                                │ +/-200bp             │            │                                 │ Committee                   │
+│ portfolio_duration             │ 2.0-6.5 years        │ Daily      │ PM notification within 1h       │ Portfolio Manager           │
+│ portfolio_dv01                 │ <= SGD 85,000 per bp  │ Daily      │ Risk Committee alert            │ Risk Committee              │
+│ tracking_error_vs_benchmark    │ <= 3.0% annualised   │ Monthly    │ IPS review triggered            │ IPS Committee               │
+│ value_at_risk_95_10d           │ <= 2.5% of NAV       │ Daily      │ CRO review required             │ Chief Risk Officer          │
+└────────────────────────────────┴──────────────────────┴────────────┴─────────────────────────────────┴─────────────────────────────┘
 ```
 
-The `AuditLogger.verify_chain()` re-derives all SHA-256 hashes in insertion order and confirms the chain is intact. All events logged by real CLI runs (`config_loaded`, `graph_construction`, `figure_computed`, `reconciliation`, `report_exported`) are included in the chain.
+Implemented via `list_all_breach_actions(driver)` in `src/graph/queries.py` (ORDER BY rm.metric) and `breach_action_for_metric(driver, metric)` for single-metric lookup.
+
+### 3.10 Audit Log Integrity (Live)
+
+The `show-audit-log` command makes the append-only audit log with hash chain visible to reviewers. Running `show-audit-log --last 10 --verify` after a full `run --firm A` execution:
+
+```text
+┏━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
+┃ #  ┃ Event Type      ┃ Actor ┃ Timestamp                   ┃ Hash (first 12) ┃
+┡━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━┩
+│ 1  │ figure_computed │ cli   │ 2026-06-19 14:46:37.128+00  │ 6b221059f170    │
+│ 2  │ figure_computed │ cli   │ 2026-06-19 14:46:37.128+00  │ 90108b150fa2    │
+│ 3  │ figure_computed │ cli   │ 2026-06-19 14:46:37.128+00  │ 47daf4b7228c    │
+│ 4  │ figure_computed │ cli   │ 2026-06-19 14:46:37.129+00  │ 6e83e8bef8dc    │
+│ 5  │ figure_computed │ cli   │ 2026-06-19 14:46:37.129+00  │ 2c6e748592eb    │
+│ 6  │ figure_computed │ cli   │ 2026-06-19 14:46:37.130+00  │ de4277463695    │
+│ 7  │ figure_computed │ cli   │ 2026-06-19 14:46:37.130+00  │ 8101499c5b07    │
+│ 8  │ figure_computed │ cli   │ 2026-06-19 14:46:37.130+00  │ 6623060a316c    │
+│ 9  │ figure_computed │ cli   │ 2026-06-19 14:46:37.131+00  │ 47bfc30c0f0c    │
+│ 10 │ report_exported │ cli   │ 2026-06-19 14:46:37.214+00  │ b38fd1439fe9    │
+└────┴─────────────────┴───────┴─────────────────────────────┴─────────────────┘
+Chain integrity: VALID (33 events verified)
+```
+
+The `verify_chain()` method re-derives all SHA-256 hashes in insertion order (`id ASC`) and confirms each row's stored hash matches the recomputed hash. `list_events(limit)` was added to `AuditLogger` in `src/audit/log.py` to support this display.
 
 ### 3.11 Narrative (Stub — Firewall PASS)
 

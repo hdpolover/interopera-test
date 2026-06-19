@@ -193,7 +193,7 @@ class Narrator:
                         )
                     if parts:
                         passage_section = "\n\n" + "\n\n".join(parts)
-            except Exception:
+            except Exception:  # noqa: BLE001 — deliberate fallthrough; passage retrieval is best-effort
                 # If retrieval fails, proceed without passages
                 pass
 

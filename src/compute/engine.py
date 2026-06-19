@@ -68,7 +68,7 @@ _FIGURE_RULE_TYPE: dict[str, str] = {
 class ComputeEngine:
     """Compute all 13 compliance figures by traversing the Neo4j graph."""
 
-    def __init__(self, driver, config: FirmConfig) -> None:
+    def __init__(self, driver: Any, config: FirmConfig) -> None:
         self._driver = driver
         self._config = config
         self._nav: Decimal | None = None

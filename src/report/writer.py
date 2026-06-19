@@ -66,11 +66,29 @@ def write_report(figures: list[Figure], output_path: str) -> None:
     Reads only from the figures list — no narrative or LLM input.
     Produces exactly 13 data rows (one per template metric) plus a header row.
 
+    Formatting applied:
+    - Header row: bold + light gray fill (#EEEEEE)
+    - BREACH rows: red background (#FF4444) + white text
+    - AT LIMIT rows: amber background (#FFAA00) + white text
+    - OK rows: green background (#00AA44) + white text
+    - Auto-fit column widths based on max content length
+
     Args:
         figures: Computed Figure objects, keyed by figure.figure (figure_id).
         output_path: Destination .xlsx file path.
     """
     import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    # Status → fill/font styles
+    _STATUS_FILL = {
+        "BREACH":   PatternFill(fill_type="solid", fgColor="FF4444"),
+        "AT LIMIT": PatternFill(fill_type="solid", fgColor="FFAA00"),
+        "OK":       PatternFill(fill_type="solid", fgColor="00AA44"),
+    }
+    _WHITE_FONT = Font(color="FFFFFF")
+    _HEADER_FILL = PatternFill(fill_type="solid", fgColor="EEEEEE")
+    _HEADER_FONT = Font(bold=True)
 
     # Build lookup: figure_id → Figure
     fig_map: dict[str, Figure] = {f.figure: f for f in figures}
@@ -79,12 +97,19 @@ def write_report(figures: list[Figure], output_path: str) -> None:
     ws = wb.active
     ws.title = "Report"
 
+    # Write and style header row
     ws.append(_HEADERS)
+    header_row = ws[1]
+    for cell in header_row:
+        cell.font = _HEADER_FONT
+        cell.fill = _HEADER_FILL
+        cell.alignment = Alignment(horizontal="center")
 
+    # Write data rows with status-based highlighting
     for section, metric, fig_id in _TEMPLATE_ROWS:
         fig = fig_map.get(fig_id)
         if fig is not None:
-            row = [
+            row_data = [
                 section,
                 metric,
                 fig.value,
@@ -93,8 +118,29 @@ def write_report(figures: list[Figure], output_path: str) -> None:
                 fig.status,
                 _build_source(fig),
             ]
+            status = fig.status
         else:
-            row = [section, metric, None, None, None, None, None]
-        ws.append(row)
+            row_data = [section, metric, None, None, None, None, None]
+            status = None
+        ws.append(row_data)
+
+        # Apply status highlight to the entire row
+        if status in _STATUS_FILL:
+            fill = _STATUS_FILL[status]
+            font = _WHITE_FONT
+            current_row = ws[ws.max_row]
+            for cell in current_row:
+                cell.fill = fill
+                cell.font = font
+
+    # Auto-fit column widths: max content length + 4 padding
+    for col_cells in ws.columns:
+        max_len = 0
+        for cell in col_cells:
+            cell_value = cell.value
+            if cell_value is not None:
+                max_len = max(max_len, len(str(cell_value)))
+        col_letter = col_cells[0].column_letter
+        ws.column_dimensions[col_letter].width = max_len + 4
 
     wb.save(output_path)
