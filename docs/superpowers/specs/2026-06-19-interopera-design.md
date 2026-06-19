@@ -434,8 +434,11 @@ weighted to compute + reconcile + firewall — the graded core.
 1. **Unresolvable extracted entity** → `PENDING_REVIEW`, blocked from reports until verified.
 2. **Untraceable figure** (no path to `SourceChunk`) → returned as `status: ERROR`, not emitted.
 
-## 11. Open items to confirm during build
-- Exact `chunk_id` scheme (hash of passage text vs sequential) — pick hash for stability.
-- Whether the optional viewer ships (time-boxed to after Phase 5).
-- PDF extraction approach detail (LLM-assisted proposal + human gate) — lock the prompt + confidence
-  scoring in step 2.
+## 11. Resolved decisions (formerly open items)
+- **`chunk_id` scheme: content hash** (`sha256` of passage text, truncated) — stable across runs, so
+  citations and the determinism diff stay byte-identical regardless of extraction order.
+- **Optional viewer: deferred.** Built only after Phases 3–5 land, as the bonus. Not in the core plan.
+- **PDF extraction: LLM-assisted proposal + human gate** (confirmed). The LLM *proposes* candidate
+  rule nodes/edges from the guidelines text; deterministic structural validation + the human verify
+  gate decide what the engine trusts (§3.1 gate 5, §4 gate). The LLM never sets a figure or approves a
+  node. Prompt + confidence scoring locked in build step 2.
