@@ -24,7 +24,7 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 | 14 | Reconciler (Firm A exact + Firm B config-only) | 3/4/5 | ✅ | 064e6fb | 12/12 | Approved+fix; 3-field compare, parses all 13 real xlsx rows, immutable result, Gate 6 clean; I-1 e2e reconcile → Task 18 |
 | 15 | Firewall checker | 5 | ✅ | fcffe9f | 22/22 | Approved; doesn't fail open — narrow allowlist, symmetric non-lossy normalization, covers value+util+limit, real FAIL path, no LLM import |
 | 16 | Report writer (xlsx) | 3 | ✅ | 7d31251 | 15/15 | Approved+fix; 13 template rows, Source=graph_path+citation, figures-only (Gate 3), cell-placement verified, deterministic |
-| 17 | Narrative writer (LLM-optional) | 3 | ⬜ | — | — | graceful fallback w/o key |
+| 17 | Narrative writer (LLM-optional) | 3 | ✅ | e895345 | 23/23 | Approved+fix; keyless stub passes firewall, blank-key fallback, anthropic guarded, deterministic, no fabricated numbers |
 | 18 | Phase 5 evaluate command | 5 | ⬜ | — | — | reconcile + traceability + firewall, table+JSON |
 | 19 | CLI wiring tests | infra | ⬜ | — | — | Typer, non-interactive, exit codes |
 | 20 | Determinism double-run test | 1 | ⬜ | — | — | diff figures.json → identical |
