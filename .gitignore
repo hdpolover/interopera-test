@@ -1,11 +1,35 @@
+# Archives / extracted
 *.zip
 /extracted/
+
+# Output (keep placeholder only)
 out/*
 !out/.gitkeep
+
+# Python artifacts
 __pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+
+# Env / secrets
 .env
+
+# OS
 .DS_Store
+
+# Internal planning docs (not for reviewers)
 docs/handoff-*.md
 docs/PROGRESS.md
 docs/superpowers/
+
+# Brief PDF (not ours to redistribute)
 homework_brief.pdf
