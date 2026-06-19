@@ -290,7 +290,7 @@ All other 11 figures produce identical values. The utilization format also diffe
 All Phase 5 checks PASSED
 ```
 
-**Note on LLM mode:** When `ANTHROPIC_API_KEY` is set in the container environment, `evaluate` invokes the real LLM (claude-haiku-4-5). The LLM sometimes introduces numbers not in the computed set (observed: `100%`, `1.0%`, `1`, `2`), causing the firewall to report FAIL. This is correct behavior — the firewall is functioning as designed. The LLM path demonstrates that the firewall correctly blocks hallucinated numbers. The stub path always passes.
+**Note on LLM mode:** When `ANTHROPIC_API_KEY` is set in the container environment, `evaluate` invokes the real LLM (default: `claude-haiku-4-5-20251001`, overridable via `ANTHROPIC_MODEL` env var). The LLM sometimes introduces numbers not in the computed set (observed: `100%`, `1.0%`, `1`, `2`), causing the firewall to report FAIL. This is correct behavior — the firewall is functioning as designed. The LLM path demonstrates that the firewall correctly blocks hallucinated numbers. The stub path always passes.
 
 ### 3.7 Determinism Verification
 
@@ -543,7 +543,7 @@ src/
 ├── audit/
 │   └── log.py                  # Append-only Postgres audit log with SHA-256 hash chain
 ├── cli/
-│   └── main.py                 # All 11 CLI commands (run, reconcile, evaluate, replay, …)
+│   └── main.py                 # All 13 CLI commands (run, reconcile, evaluate, replay, …)
 ├── compute/
 │   ├── config_loader.py        # Load base + firm YAML; FirmConfig Pydantic model
 │   ├── engine.py               # ComputeEngine: orchestrates all 13 figure computations
