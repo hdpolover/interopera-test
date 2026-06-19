@@ -256,11 +256,16 @@ class ComputeEngine:
             return "(Position)-[:ISSUED_BY]->(Issuer)-[:ROLLS_UP_TO?]->(ParentIssuer)"
         return f"({sel})"
 
-    def _get_citation(self, spec: FigureSpec | None = None) -> dict:
+    def _get_citation(self, spec: FigureSpec | None = None) -> dict | None:
         """Return citation from the SourceChunk node reachable via this figure's Limit node.
 
         Traversal: (Limit {rule_type})-[:DERIVED_FROM]->(SourceChunk)
         The Limit.rule_type property is set by builder.load_rules from extracted_fields.
+
+        Returns None when no SourceChunk is reachable (missing or broken DERIVED_FROM edge).
+        The caller (compute_figure) must treat None as an unresolvable citation and return
+        Figure(status="ERROR") — a figure that cannot be traced to a source document is not
+        safe to emit as a numeric value.
         """
         rule_type = _FIGURE_RULE_TYPE.get(spec.id, "") if spec else ""
         with self._driver.session() as session:
@@ -297,7 +302,7 @@ class ComputeEngine:
                     "chunk_id": record["chunk_id"],
                     "passage_summary": record["passage_summary"],
                 }
-        return {"source_doc": "", "page": 0, "chunk_id": "", "passage_summary": ""}
+        return None
 
     def _check_limit_node_pending(self, spec: FigureSpec) -> bool:
         """Return True if the anchor Limit node for this figure is PENDING_REVIEW.
@@ -326,7 +331,21 @@ class ComputeEngine:
         nav_value = self._get_nav()
         citation = self._get_citation(spec)
 
-        # Check if the anchor Limit node is pending verification
+        # Gate 1: no reachable SourceChunk — figure cannot be traced to a source document.
+        # A figure with an unresolvable citation must not be emitted as a numeric value.
+        _empty_citation: dict = {"source_doc": "", "page": 0, "chunk_id": "", "passage_summary": ""}
+        if citation is None:
+            return Figure(
+                figure=spec.id,
+                value="ERROR",
+                utilization="n/a",
+                status="ERROR",
+                limit=spec.limit_display,
+                graph_path="no reachable SourceChunk — citation unresolvable",
+                citation=_empty_citation,
+            )
+
+        # Gate 2: anchor Limit node is pending human verification
         if self._check_limit_node_pending(spec):
             return Figure(
                 figure=spec.id,

@@ -166,12 +166,36 @@ def test_all_positions_sorted(loaded_graph):
 
 
 def test_list_pending_nodes(loaded_graph):
+    """list_pending_nodes returns all PENDING_REVIEW nodes; every returned node has status=PENDING_REVIEW.
+
+    Note: all stub SourceChunk/Limit nodes produced by guidelines_parser have extraction_confidence
+    >= 0.92 (well above the 0.85 threshold), so they are all VERIFIED after load_rules.  To make
+    this test meaningful we inject a synthetic Limit node with PENDING_REVIEW status, assert it
+    appears in the listing AND that every item returned has the correct status, then clean it up.
+    """
     from src.graph.queries import list_pending_nodes
-    pending = list_pending_nodes(loaded_graph)
-    # Guidelines parser produces at least one PENDING_REVIEW chunk (low confidence)
-    # All are dicts with at least status key
-    for node in pending:
-        assert node["status"] == "PENDING_REVIEW"
+
+    _SYNTHETIC_REF = "test_pending_ref_list"
+
+    with loaded_graph.session() as session:
+        session.run(
+            "MERGE (l:Limit {ref: $ref}) SET l.status = 'PENDING_REVIEW', l.rule_type = 'test_type'",
+            ref=_SYNTHETIC_REF,
+        )
+
+    try:
+        pending = list_pending_nodes(loaded_graph)
+        # Every node returned must have status PENDING_REVIEW
+        for node in pending:
+            assert node["status"] == "PENDING_REVIEW"
+        # Our injected node must appear
+        node_ids = [n["node_id"] for n in pending]
+        assert _SYNTHETIC_REF in node_ids, (
+            f"Injected PENDING_REVIEW node '{_SYNTHETIC_REF}' not found in listing: {node_ids}"
+        )
+    finally:
+        with loaded_graph.session() as session:
+            session.run("MATCH (l:Limit {ref: $ref}) DETACH DELETE l", ref=_SYNTHETIC_REF)
 
 
 def test_approve_node_raises_on_empty_actor(loaded_graph):
@@ -187,12 +211,44 @@ def test_approve_node_raises_on_whitespace_actor(loaded_graph):
 
 
 def test_approve_node_flips_status_to_verified(loaded_graph):
+    """approve_node must flip a PENDING_REVIEW node to VERIFIED (happy path, end-to-end).
+
+    Injects a synthetic Limit node with PENDING_REVIEW status, calls approve_node,
+    then asserts the node no longer appears in list_pending_nodes output.
+    """
     from src.graph.queries import list_pending_nodes, approve_node
-    pending = list_pending_nodes(loaded_graph)
-    if not pending:
-        pytest.skip("No PENDING_REVIEW nodes to test approval")
-    node_id = pending[0]["node_id"]
-    approve_node(loaded_graph, node_id, "test_reviewer")
-    # After approval, should no longer be pending
-    remaining = {n["node_id"] for n in list_pending_nodes(loaded_graph)}
-    assert node_id not in remaining
+
+    _SYNTHETIC_REF = "test_pending_ref_approve"
+
+    with loaded_graph.session() as session:
+        session.run(
+            "MERGE (l:Limit {ref: $ref}) SET l.status = 'PENDING_REVIEW', l.rule_type = 'test_type'",
+            ref=_SYNTHETIC_REF,
+        )
+
+    try:
+        # Confirm node is pending before approval
+        pending_before = {n["node_id"] for n in list_pending_nodes(loaded_graph)}
+        assert _SYNTHETIC_REF in pending_before, "Injected node not pending before approval"
+
+        approve_node(loaded_graph, _SYNTHETIC_REF, actor="test_reviewer")
+
+        # After approval the node must NOT appear in pending list
+        remaining = {n["node_id"] for n in list_pending_nodes(loaded_graph)}
+        assert _SYNTHETIC_REF not in remaining, (
+            f"Node '{_SYNTHETIC_REF}' still pending after approve_node call"
+        )
+
+        # Verify the approved_by attribute was set
+        with loaded_graph.session() as session:
+            result = session.run(
+                "MATCH (l:Limit {ref: $ref}) RETURN l.status AS status, l.approved_by AS approved_by",
+                ref=_SYNTHETIC_REF,
+            )
+            record = result.single()
+            assert record is not None
+            assert record["status"] == "VERIFIED"
+            assert record["approved_by"] == "test_reviewer"
+    finally:
+        with loaded_graph.session() as session:
+            session.run("MATCH (l:Limit {ref: $ref}) DETACH DELETE l", ref=_SYNTHETIC_REF)
