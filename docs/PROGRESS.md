@@ -27,7 +27,7 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 | 17 | Narrative writer (LLM-optional) | 3 | ✅ | e895345 | 23/23 | Approved+fix; keyless stub passes firewall, blank-key fallback, anthropic guarded, deterministic, no fabricated numbers |
 | 18 | Phase 5 evaluate command | 5 | ✅ | 36689ea | 20/20 | Approved+fix; ⭐ GENUINE e2e: Firm A 13/13 + Firm B 13/13 reconcile vs real answer keys (dual count guards), traceability + firewall pass both firms |
 | 19 | CLI wiring tests | infra | ✅ | cfd9718 | 29/29 | Approved+fix; 8 subcommands, non-interactive, --json, exit 0/1 tested (incl failure path), deps pinned (typer 0.25.1/rich 15.0.0), image rebuilt |
-| 20 | Determinism double-run test | 1 | ⬜ | — | — | diff figures.json → identical |
+| 20 | Determinism double-run test | 1 | ✅ | 4989e3d | 6/6 | Verified by controller; two independent run_all(), byte-identical figures.json incl citation, both firms, no timestamp leak (constraint 1 proven) |
 | 21 | Full pipeline integration test | all | ⬜ | — | — | both firms end-to-end |
 | 22 | README + polish | runs | ⬜ | — | — | single-command start |
 | B | Bonus: replay viewer (FastAPI) | bonus | ⬜ | — | — | only if Phases 3–5 land with time |
