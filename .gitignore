@@ -5,3 +5,6 @@ out/*
 __pycache__/
 .env
 .DS_Store
+docs/handoff-*.md
+docs/PROGRESS.md
+docs/superpowers/
