@@ -20,7 +20,7 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 | 10 | Verify gate | 1/2 | ✅ | 8379f09 | 42/42 | Approved; gate ERROR on pending, approve→VERIFIED end-to-end, missing-citation→ERROR (I-2 closed); I-A test-fragility → final triage |
 | 11 | Config engine — Firm B figures | 4 ⭐ | ✅ | 0aaa517 | 14/14 (+19 A) | Approved+fix; all 13 Firm B figures (21%/13%/bps) by config only, no firm branch (grep-proven); engine bug fix (fallen-angel over-select) firm-agnostic |
 | 12 | LLM containment gates (6 tests) | 3 | ✅ | 03781f8 | 6/6 | Approved; all gates genuinely effective (AST scans, live sig inspect, behavioral); created stubs writer/checker/reconciler → 14/15/16 replace |
-| 13 | Audit log (append-only + hash chain) | audit | ⬜ | — | — | REVOKE + trigger + chain verify |
+| 13 | Audit log (append-only + hash chain) | audit | ✅ | 15fc398 | 9/9 | Approved+fix; UPDATE/DELETE blocked by trigger, hash now covers event_type/actor/config_hash/payload (actor-tamper detected), 5 event types |
 | 14 | Reconciler (Firm A exact + Firm B config-only) | 3/4/5 | ⬜ | — | — | compares value + utilization + status |
 | 15 | Firewall checker | 5 | ⬜ | — | — | narrative numbers ⊆ computed; allowlist documented |
 | 16 | Report writer (xlsx) | 3 | ⬜ | — | — | populates template from figures.json |
