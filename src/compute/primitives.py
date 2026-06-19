@@ -64,8 +64,6 @@ def within_min_max(value: Decimal, min_val: Decimal, max_val: Decimal) -> str:
     """Return OK/BREACH/AT LIMIT for a value within a min-max band."""
     if value < min_val or value > max_val:
         return "BREACH"
-    if value == min_val or value == max_val:
-        return "OK"
     return "OK"
 
 
