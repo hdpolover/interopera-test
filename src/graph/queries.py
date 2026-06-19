@@ -1,0 +1,268 @@
+"""Graph query selectors for the compliance engine.
+
+All selectors return list[dict] with provenance included.
+All position queries ORDER BY p.instrument_id for determinism.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+# Asset classes considered liquid (government securities + cash)
+_LIQUID_ASSET_CLASSES = {
+    "Singapore Government Securities",
+    "MAS Bills",
+    "Cash & Cash Equivalents",
+}
+
+# Investment-grade ratings (floor is BBB-)
+_IG_RATINGS = {"AAA", "AA+", "AA", "AA-", "A+", "A", "A-", "BBB+", "BBB", "BBB-"}
+
+# Explicit below-IG ratings used to identify fallen angels.
+# A fallen angel is an IG-class position whose credit_rating has dropped into this set
+# and whose downgraded_from field is set (proving prior IG status).
+# Investment-grade floor is BBB-; anything below that is in this set.
+_BELOW_IG_RATINGS = {
+    "BB+", "BB", "BB-",
+    "B+", "B", "B-",
+    "CCC+", "CCC", "CCC-",
+    "CC", "C", "D",
+}
+
+# Cypher snippet for the standard position column list (no trailing comma)
+_POSITION_COLUMNS = """
+    p.instrument_id        AS instrument_id,
+    p.instrument_name      AS instrument_name,
+    p.asset_class          AS asset_class,
+    p.issuer_name          AS issuer_name,
+    p.issuer_type          AS issuer_type,
+    p.credit_rating        AS credit_rating,
+    p.downgraded_from      AS downgraded_from,
+    p.market_value_sgd     AS market_value_sgd,
+    p.modified_duration    AS modified_duration,
+    p.status               AS status,
+    p.source_doc           AS source_doc,
+    p.page                 AS page,
+    p.chunk_id             AS chunk_id,
+    p.ingested_at          AS ingested_at,
+    p.extraction_confidence AS extraction_confidence
+"""
+
+
+def _row_to_dict(record) -> dict[str, Any]:
+    """Convert a Neo4j Record to a plain Python dict."""
+    return dict(record)
+
+
+def positions_in_asset_class(driver, ac: str) -> list[dict[str, Any]]:
+    """Return all positions in the given asset class, sorted by instrument_id."""
+    with driver.session() as session:
+        result = session.run(
+            f"""
+            MATCH (p:Position)-[:IN_ASSET_CLASS]->(a:AssetClass {{name: $ac}})
+            RETURN {_POSITION_COLUMNS}
+            ORDER BY p.instrument_id
+            """,
+            ac=ac,
+        )
+        return [_row_to_dict(r) for r in result]
+
+
+def positions_matching(driver, predicate: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return positions matching the given predicate dict.
+
+    Predicate keys:
+    - asset_class_in: list[str] — match positions in these asset classes
+    - include_fallen_angels: bool — if True, also include positions in the
+      listed IG-class asset classes whose credit_rating has fallen below IG
+      (i.e. credit_rating is in _BELOW_IG_RATINGS AND downgraded_from is set).
+      Default False.
+
+    Fallen-angel logic (precise):
+    - Without include_fallen_angels: return only positions whose AssetClass.name
+      is in asset_class_in.
+    - With include_fallen_angels: additionally return positions where
+      downgraded_from IS NOT NULL AND credit_rating IN _BELOW_IG_RATINGS
+      (regardless of which asset class they are in, because the position is still
+      booked under its original IG class but its rating has degraded).
+    """
+    asset_classes: list[str] = predicate.get("asset_class_in", [])
+    include_fallen_angels: bool = predicate.get("include_fallen_angels", False)
+
+    with driver.session() as session:
+        if include_fallen_angels:
+            result = session.run(
+                f"""
+                MATCH (p:Position)-[:IN_ASSET_CLASS]->(a:AssetClass)
+                WHERE a.name IN $asset_classes
+                   OR (
+                       p.downgraded_from IS NOT NULL
+                       AND p.downgraded_from <> ''
+                       AND p.credit_rating IN $below_ig_ratings
+                   )
+                RETURN {_POSITION_COLUMNS}
+                ORDER BY p.instrument_id
+                """,
+                asset_classes=asset_classes,
+                below_ig_ratings=list(_BELOW_IG_RATINGS),
+            )
+        else:
+            result = session.run(
+                f"""
+                MATCH (p:Position)-[:IN_ASSET_CLASS]->(a:AssetClass)
+                WHERE a.name IN $asset_classes
+                RETURN {_POSITION_COLUMNS}
+                ORDER BY p.instrument_id
+                """,
+                asset_classes=asset_classes,
+            )
+        return [_row_to_dict(r) for r in result]
+
+
+def positions_by_issuer(driver, group_key: str) -> dict[str, list[dict[str, Any]]]:
+    """Return positions grouped by issuer or parent_issuer.
+
+    group_key values:
+    - "issuer": group by the immediate Issuer node name (p.issuer_name)
+    - "parent_issuer": group GREs by their ParentIssuer name; non-GREs fall
+      back to issuer name (via COALESCE).
+
+    All sub-lists are sorted by instrument_id (ORDER BY in the query).
+    """
+    groups: dict[str, list[dict[str, Any]]] = {}
+
+    with driver.session() as session:
+        if group_key == "parent_issuer":
+            result = session.run(
+                f"""
+                MATCH (p:Position)-[:ISSUED_BY]->(i:Issuer)
+                OPTIONAL MATCH (i)-[:ROLLS_UP_TO]->(pi:ParentIssuer)
+                RETURN {_POSITION_COLUMNS},
+                       COALESCE(pi.name, i.name) AS group_name
+                ORDER BY p.instrument_id
+                """
+            )
+        else:
+            # group by immediate issuer
+            result = session.run(
+                f"""
+                MATCH (p:Position)-[:ISSUED_BY]->(i:Issuer)
+                RETURN {_POSITION_COLUMNS},
+                       i.name AS group_name
+                ORDER BY p.instrument_id
+                """
+            )
+
+        for record in result:
+            row = _row_to_dict(record)
+            gname = row.pop("group_name")
+            groups.setdefault(gname, []).append(row)
+
+    return groups
+
+
+def liquid_positions(driver) -> list[dict[str, Any]]:
+    """Return positions in liquid asset classes (SGS, MAS Bills, Cash), sorted by instrument_id."""
+    with driver.session() as session:
+        result = session.run(
+            f"""
+            MATCH (p:Position)-[:IN_ASSET_CLASS]->(a:AssetClass)
+            WHERE a.name IN $liquid_classes
+            RETURN {_POSITION_COLUMNS}
+            ORDER BY p.instrument_id
+            """,
+            liquid_classes=list(_LIQUID_ASSET_CLASSES),
+        )
+        return [_row_to_dict(r) for r in result]
+
+
+def all_positions(driver) -> list[dict[str, Any]]:
+    """Return all Position nodes sorted by instrument_id."""
+    with driver.session() as session:
+        result = session.run(
+            f"""
+            MATCH (p:Position)
+            RETURN {_POSITION_COLUMNS}
+            ORDER BY p.instrument_id
+            """
+        )
+        return [_row_to_dict(r) for r in result]
+
+
+def list_pending_nodes(driver) -> list[dict[str, Any]]:
+    """Return all nodes with status = 'PENDING_REVIEW'.
+
+    Returns dicts with: labels, node_id, status, confidence.
+    """
+    with driver.session() as session:
+        result = session.run(
+            """
+            MATCH (n)
+            WHERE n.status = 'PENDING_REVIEW'
+            RETURN labels(n) AS labels,
+                   COALESCE(n.instrument_id, n.chunk_id, n.ref, n.name, '') AS node_id,
+                   n.status AS status,
+                   n.extraction_confidence AS confidence
+            """
+        )
+        return [_row_to_dict(r) for r in result]
+
+
+def approve_node(driver, node_id: str, actor: str) -> None:
+    """Flip a PENDING_REVIEW node to VERIFIED.
+
+    Raises ValueError if actor is empty or whitespace-only — every approval
+    must be attributed to a named reviewer for audit purposes.
+    """
+    if not actor or not actor.strip():
+        raise ValueError("actor must be a non-empty string for approve_node")
+
+    with driver.session() as session:
+        session.run(
+            """
+            MATCH (n)
+            WHERE COALESCE(n.instrument_id, n.chunk_id, n.ref, n.name, '') = $node_id
+              AND n.status = 'PENDING_REVIEW'
+            SET n.status      = 'VERIFIED',
+                n.approved_by = $actor
+            """,
+            node_id=node_id,
+            actor=actor,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Utility lookups for rule nodes (used by the compliance engine)
+# ---------------------------------------------------------------------------
+
+
+def limit_node(driver, ref: str) -> dict[str, Any]:
+    """Return a Limit node by ref, or empty dict if not found."""
+    with driver.session() as session:
+        result = session.run(
+            "MATCH (l:Limit {ref: $ref}) RETURN l",
+            ref=ref,
+        )
+        record = result.single()
+        return dict(record["l"]) if record else {}
+
+
+def aggregate_node(driver, name: str) -> dict[str, Any]:
+    """Return an Aggregate node by name, or empty dict if not found."""
+    with driver.session() as session:
+        result = session.run(
+            "MATCH (a:Aggregate {name: $name}) RETURN a",
+            name=name,
+        )
+        record = result.single()
+        return dict(record["a"]) if record else {}
+
+
+def threshold_node(driver, metric: str) -> dict[str, Any]:
+    """Return a Threshold node by metric, or empty dict if not found."""
+    with driver.session() as session:
+        result = session.run(
+            "MATCH (t:Threshold {metric: $metric}) RETURN t",
+            metric=metric,
+        )
+        record = result.single()
+        return dict(record["t"]) if record else {}
