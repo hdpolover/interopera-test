@@ -170,6 +170,12 @@ def test_truncated_bps():
     assert truncated_bps(Decimal("0.15")) == "1500 bps"
 
 
+def test_truncated_bps_floor_not_round():
+    """Verify floor semantics: 0.583359 → 5833.59 bps → floor gives 5833, NOT round's 5834."""
+    from src.compute.primitives import truncated_bps
+    assert truncated_bps(Decimal("0.583359")) == "5833 bps"
+
+
 def test_years_2dp():
     from src.compute.primitives import years_2dp
     assert years_2dp(Decimal("3.8790")) == "3.88 yrs"

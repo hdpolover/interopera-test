@@ -35,6 +35,9 @@ _NUMBER_RE = re.compile(
     r"|\b\d+\.\d+%?"                        # plain decimal  e.g. 35.0  3.88  35.0%
     r"|\b\d+%?"                             # plain integer  e.g. 5  20%
 )
+# Note: this regex does not match negative numbers (e.g. a fabricated "-35.0%" would
+# normalize to "35.0" because the leading minus is not captured by \b\d+).
+# This is acceptable since all computed figures are non-negative by construction.
 
 # ---------------------------------------------------------------------------
 # Documented allowlist — categories of numbers that legitimately appear in

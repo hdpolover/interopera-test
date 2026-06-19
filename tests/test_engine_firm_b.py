@@ -167,3 +167,14 @@ def test_no_firm_b_hardcoding_in_compute():
     assert result.returncode != 0, (
         f"Found firm-specific hardcoding in src/compute/:\n{result.stdout}"
     )
+
+
+def test_largest_gre_issuer_graph_path_firm_b(firm_b_figures):
+    """Firm B GRE graph_path (group_key=parent_issuer) must name 'Redhill Holdings' and include ROLLS_UP_TO."""
+    fig = firm_b_figures["largest_gre_issuer"]
+    assert "Redhill Holdings" in fig.graph_path, (
+        f"Expected 'Redhill Holdings' in graph_path, got: {fig.graph_path}"
+    )
+    assert "ROLLS_UP_TO" in fig.graph_path, (
+        f"Expected 'ROLLS_UP_TO' in graph_path (parent_issuer grouping), got: {fig.graph_path}"
+    )

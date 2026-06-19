@@ -132,7 +132,7 @@ def test_extract_numeric_tokens():
     from src.firewall.checker import extract_numeric_tokens
     text = "35.0% of NAV with SGD 38,790 / bp DV01 and 3.88 yrs duration"
     tokens = extract_numeric_tokens(text)
-    assert "35.0%" in tokens or any("35" in t for t in tokens)
+    assert "35.0%" in tokens
 
 
 def test_normalize_token_strips_commas():
@@ -143,7 +143,7 @@ def test_normalize_token_strips_commas():
 def test_normalize_token_preserves_pct():
     from src.firewall.checker import normalize_token
     result = normalize_token("35.0%")
-    assert "35" in result
+    assert result == "35.0"
 
 
 def test_firewall_result_dataclass():

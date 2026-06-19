@@ -127,8 +127,8 @@ class ComputeEngine:
 
     def _compute_group_value(
         self, spec: FigureSpec, nav_value: Decimal
-    ) -> tuple[Decimal, str]:
-        """Compute grouped figure (max_group_pct). Returns (value, group_name)."""
+    ) -> tuple[Decimal, str, str, list[str]]:
+        """Compute grouped figure (max_group_pct). Returns (value, group_name, group_key, member_ids)."""
         pred = dict(spec.predicate)
         # Resolve group_key from config if needed
         if "group_key_config_key" in pred:
@@ -149,10 +149,11 @@ class ComputeEngine:
             all_groups = filtered
 
         if not all_groups:
-            return Decimal("0"), ""
+            return Decimal("0"), "", group_key, []
 
         gname, gpct = max_group_pct(all_groups, nav_value)
-        return gpct, gname
+        member_ids = [p["instrument_id"] for p in all_groups[gname]]
+        return gpct, gname, group_key, member_ids
 
     def _apply_comparator(self, spec: FigureSpec, value: Decimal) -> str:
         """Apply comparator to produce OK/BREACH/AT LIMIT."""
@@ -207,7 +208,14 @@ class ComputeEngine:
         else:
             return percent_1dp(raw_util)
 
-    def _build_graph_path(self, spec: FigureSpec, positions: list[dict]) -> str:
+    def _build_graph_path(
+        self,
+        spec: FigureSpec,
+        positions: list[dict],
+        group_name: str = "",
+        group_key: str = "",
+        member_ids: list[str] | None = None,
+    ) -> str:
         """Build a human-readable graph path from the actual traversal result."""
         sel = spec.selector
         if sel == "positions_in_asset_class":
@@ -252,7 +260,19 @@ class ComputeEngine:
         if sel == "all_positions":
             return "(Position:all)-[:IN_ASSET_CLASS]->(AssetClass:all)"
         if sel == "positions_by_issuer":
-            return "(Position)-[:ISSUED_BY]->(Issuer)-[:ROLLS_UP_TO?]->(ParentIssuer)"
+            # Build real graph path reflecting the actual winning group.
+            ids_str = ", ".join(sorted(member_ids or []))
+            if group_key == "parent_issuer":
+                # GRE grouped by parent: positions roll up through Issuer → ParentIssuer.
+                return (
+                    f"(Position:{ids_str})-[:ISSUED_BY]->(Issuer)"
+                    f"-[:ROLLS_UP_TO]->(ParentIssuer:{group_name})"
+                )
+            else:
+                # Grouped by immediate issuer (default).
+                return (
+                    f"(Position:{ids_str})-[:ISSUED_BY]->(Issuer:{group_name})"
+                )
         return f"({sel})"
 
     def _get_citation(self, spec: FigureSpec | None = None) -> dict | None:
@@ -267,32 +287,24 @@ class ComputeEngine:
         safe to emit as a numeric value.
         """
         rule_type = _FIGURE_RULE_TYPE.get(spec.id, "") if spec else ""
+        # Guard: if rule_type is empty (falsy), we have no rule anchor to cite.
+        # Return None so that the caller's missing-citation→ERROR path fires,
+        # rather than returning a random VERIFIED SourceChunk unrelated to this figure.
+        if not rule_type:
+            return None
         with self._driver.session() as session:
-            if rule_type:
-                result = session.run(
-                    """
-                    MATCH (l:Limit {rule_type: $rule_type})-[:DERIVED_FROM]->(sc:SourceChunk)
-                    WHERE sc.status = 'VERIFIED'
-                    RETURN sc.chunk_id AS chunk_id,
-                           sc.source_doc AS source_doc,
-                           sc.page AS page,
-                           sc.passage_summary AS passage_summary
-                    LIMIT 1
-                    """,
-                    rule_type=rule_type,
-                )
-            else:
-                result = session.run(
-                    """
-                    MATCH (sc:SourceChunk)
-                    WHERE sc.status = 'VERIFIED'
-                    RETURN sc.chunk_id AS chunk_id,
-                           sc.source_doc AS source_doc,
-                           sc.page AS page,
-                           sc.passage_summary AS passage_summary
-                    LIMIT 1
-                    """
-                )
+            result = session.run(
+                """
+                MATCH (l:Limit {rule_type: $rule_type})-[:DERIVED_FROM]->(sc:SourceChunk)
+                WHERE sc.status = 'VERIFIED'
+                RETURN sc.chunk_id AS chunk_id,
+                       sc.source_doc AS source_doc,
+                       sc.page AS page,
+                       sc.passage_summary AS passage_summary
+                LIMIT 1
+                """,
+                rule_type=rule_type,
+            )
             record = result.single()
             if record:
                 return {
@@ -356,8 +368,11 @@ class ComputeEngine:
                 citation=citation,
             )
 
+        group_name: str = ""
+        group_key: str = ""
+        member_ids: list[str] = []
         if spec.selector == "positions_by_issuer":
-            value, _group_name = self._compute_group_value(spec, nav_value)
+            value, group_name, group_key, member_ids = self._compute_group_value(spec, nav_value)
             positions = []  # groups don't return flat list
         else:
             positions = self._get_positions(spec)
@@ -378,7 +393,10 @@ class ComputeEngine:
         status = self._apply_comparator(spec, value)
         formatted_value = self._apply_formatter(spec, value)
         utilization = self._compute_utilization(spec, value)
-        graph_path = self._build_graph_path(spec, positions)
+        graph_path = self._build_graph_path(
+            spec, positions,
+            group_name=group_name, group_key=group_key, member_ids=member_ids,
+        )
 
         return Figure(
             figure=spec.id,

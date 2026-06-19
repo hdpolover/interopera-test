@@ -217,3 +217,10 @@ These are noted but not wired in the Docker Compose demo stack:
 - **Viewer auth** — the FastAPI replay viewer (bonus task, not implemented) would require
   at minimum read-only token auth before exposing audit events.
 - **Neo4j auth** — use a strong password and disable the Neo4j browser endpoint in production.
+- **Audit append-only caveats** — (1) Append-only is enforced by the `enforce_audit_append_only`
+  BEFORE UPDATE/DELETE trigger, which fires even for superusers running ad-hoc SQL. (2) The app
+  currently connects as the Postgres superuser (`interopera`) so the `REVOKE UPDATE, DELETE` on
+  `app_role` is belt-and-suspenders only — production must use a non-superuser `app_role`
+  connection to enforce the INSERT-only constraint at the connection level. (3) `TRUNCATE`
+  bypasses row-level DELETE triggers, so production should also `REVOKE TRUNCATE` on
+  `audit_event` from all roles and restrict table ownership to a dedicated schema owner.

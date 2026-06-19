@@ -253,6 +253,27 @@ traverse `Position → rating`. Forcing Firm B's number under Firm A's path shap
 trap (a path that lies about how the number was made — the exact "graph built but numbers computed
 elsewhere" failure the brief warns about). So `graph_path` reflects each firm's real method.
 
+#### Concentration figure graph_path format
+For `largest_single_corporate_issuer` and `largest_gre_issuer`, the `graph_path` is generated
+from the **actual winning group** — the group name and member instrument_ids are threaded from
+`_compute_group_value` into `_build_graph_path`. The format differs by `group_key`:
+
+- **`group_key=issuer`** (Firm A GRE by immediate issuer):
+  ```
+  (Position:COR-03)-[:ISSUED_BY]->(Issuer:Redhill Power Pte Ltd)
+  ```
+- **`group_key=parent_issuer`** (Firm B GRE by parent, includes ROLLS_UP_TO):
+  ```
+  (Position:COR-03, COR-04)-[:ISSUED_BY]->(Issuer)-[:ROLLS_UP_TO]->(ParentIssuer:Redhill Holdings)
+  ```
+- **Single corporate issuer** (group_key=issuer, one instrument):
+  ```
+  (Position:COR-01)-[:ISSUED_BY]->(Issuer:Changi Logistics Pte Ltd)
+  ```
+
+The path is deterministic: instrument_ids are sorted alphabetically; `ROLLS_UP_TO` appears
+only when `group_key == "parent_issuer"`.
+
 ## 6. Config system & firm switching (Phase 4 ⭐ — constraint 5)
 
 **The engine has zero firm bias.** Both firms are equal config files; neither is "the default in

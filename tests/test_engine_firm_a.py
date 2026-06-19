@@ -216,3 +216,19 @@ def test_different_figures_have_different_citations(firm_a_figures):
     assert sgs_citation["chunk_id"] != dv01_citation["chunk_id"], (
         "Different figures should cite different SourceChunk nodes"
     )
+
+
+def test_largest_gre_issuer_graph_path_firm_a(firm_a_figures):
+    """Firm A GRE graph_path (group_key=issuer) must name 'Redhill Power' directly."""
+    fig = firm_a_figures["largest_gre_issuer"]
+    assert "Redhill Power" in fig.graph_path, (
+        f"Expected 'Redhill Power' in graph_path, got: {fig.graph_path}"
+    )
+
+
+def test_largest_single_corporate_issuer_graph_path_firm_a(firm_a_figures):
+    """Single corporate issuer graph_path must name 'Changi Logistics'."""
+    fig = firm_a_figures["largest_single_corporate_issuer"]
+    assert "Changi Logistics" in fig.graph_path, (
+        f"Expected 'Changi Logistics' in graph_path, got: {fig.graph_path}"
+    )
