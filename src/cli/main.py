@@ -29,6 +29,35 @@ def _get_driver():
     return GraphDatabase.driver(uri, auth=(user, password))
 
 
+def _make_audit_logger(run_id: str):
+    """Return an AuditLogger bound to the current POSTGRES_DSN, or None.
+
+    Graceful degradation: if POSTGRES_DSN is unset or the DB is unreachable,
+    prints a warning to stderr and returns None.  Callers check for None before
+    logging so the rest of the pipeline always succeeds.
+    """
+    from src.audit.log import AuditLogger
+    dsn = os.environ.get("POSTGRES_DSN")
+    if not dsn:
+        typer.echo("Warning: POSTGRES_DSN not set — audit logging disabled", err=True)
+        return None
+    try:
+        return AuditLogger(dsn)
+    except Exception as exc:  # pragma: no cover
+        typer.echo(f"Warning: audit DB unreachable ({exc}) — audit logging disabled", err=True)
+        return None
+
+
+def _audit_log(logger, run_id: str, event_type: str, actor: str, payload: dict, config_hash: Optional[str] = None) -> None:
+    """Log an audit event, silently swallowing errors so the pipeline is never blocked."""
+    if logger is None:
+        return
+    try:
+        logger.log_event(run_id, event_type, actor, payload, config_hash=config_hash)
+    except Exception as exc:  # pragma: no cover
+        typer.echo(f"Warning: audit log write failed ({exc})", err=True)
+
+
 @app.command()
 def ingest(
     holdings: str = typer.Option(str(SAMPLE_DOCS / "sample_holdings.csv"), help="Holdings CSV path"),
@@ -53,6 +82,8 @@ def build_graph(
     from src.graph.builder import load_positions, load_rules
     from src.ingestion.holdings_parser import parse_holdings
     from src.ingestion.guidelines_parser import parse_guidelines
+    run_id = str(uuid.uuid4())
+    audit = _make_audit_logger(run_id)
     driver = _get_driver()
     apply_schema(driver)
     positions = parse_holdings(holdings)
@@ -62,6 +93,12 @@ def build_graph(
     load_rules(driver, chunks)
     console.print(f"Loaded {len(chunks)} rule chunks into graph")
     driver.close()
+    _audit_log(
+        audit, run_id, "graph_construction", "cli",
+        {"position_count": len(positions), "rule_chunk_count": len(chunks)},
+    )
+    if audit is not None:
+        audit.close()
 
 
 @app.command(name="verify-graph")
@@ -72,11 +109,15 @@ def verify_graph(
 ):
     """List PENDING_REVIEW nodes and optionally approve them."""
     from src.graph.queries import list_pending_nodes, approve_node
+    run_id = str(uuid.uuid4())
+    audit = _make_audit_logger(run_id)
     driver = _get_driver()
     pending = list_pending_nodes(driver)
     if not pending:
         console.print("[green]All nodes are VERIFIED.[/green]")
         driver.close()
+        if audit is not None:
+            audit.close()
         return
     table = Table("Node ID", "Labels", "Confidence")
     for n in pending:
@@ -85,11 +126,21 @@ def verify_graph(
     if approve_all:
         for n in pending:
             approve_node(driver, n["node_id"], actor=actor)
+            _audit_log(
+                audit, run_id, "node_verified", actor,
+                {"node_id": n["node_id"], "labels": n.get("labels")},
+            )
         console.print(f"[green]Approved {len(pending)} nodes as {actor}[/green]")
     elif approve:
         approve_node(driver, approve, actor=actor)
+        _audit_log(
+            audit, run_id, "node_verified", actor,
+            {"node_id": approve},
+        )
         console.print(f"[green]Approved {approve} as {actor}[/green]")
     driver.close()
+    if audit is not None:
+        audit.close()
 
 
 @app.command(name="run")
@@ -115,9 +166,19 @@ def run_cmd(
     except Exception as exc:
         typer.echo(f"Error: failed to load config for firm '{firm}': {exc}", err=True)
         raise typer.Exit(code=1)
+
+    run_id = str(uuid.uuid4())
+    audit = _make_audit_logger(run_id)
+    cfg_hash = effective_config_hash(config)
+
+    _audit_log(
+        audit, run_id, "config_loaded", "cli",
+        {"firm_id": firm_id, "config_hash": cfg_hash},
+        config_hash=cfg_hash,
+    )
+
     driver = _get_driver()
     engine = ComputeEngine(driver, config)
-    run_id = str(uuid.uuid4())
     figures = engine.run_all()
 
     OUT_DIR.mkdir(exist_ok=True)
@@ -130,8 +191,31 @@ def run_cmd(
     figures_path = OUT_DIR / f"figures_{firm_id}.json"
     figures_path.write_text(json.dumps(figures_data, indent=2, sort_keys=True))
 
+    # Log one figure_computed event per figure
+    for f in figures:
+        _audit_log(
+            audit, run_id, "figure_computed", "cli",
+            {
+                "figure": f.figure,
+                "value": f.value,
+                "status": f.status,
+                "graph_path": f.graph_path,
+                "chunk_id": f.citation.get("chunk_id") if isinstance(f.citation, dict) else None,
+            },
+            config_hash=cfg_hash,
+        )
+
     report_path = OUT_DIR / f"report_{firm_id}.xlsx"
     write_report(figures, str(report_path))
+
+    _audit_log(
+        audit, run_id, "report_exported", "cli",
+        {"output_path": str(report_path)},
+        config_hash=cfg_hash,
+    )
+
+    if audit is not None:
+        audit.close()
 
     if output_json:
         typer.echo(json.dumps(figures_data, indent=2))
@@ -169,6 +253,10 @@ def reconcile(
     except Exception as exc:
         typer.echo(f"Error: failed to load config for firm '{firm}': {exc}", err=True)
         raise typer.Exit(code=1)
+
+    run_id = str(uuid.uuid4())
+    audit = _make_audit_logger(run_id)
+
     driver = _get_driver()
     figures = ComputeEngine(driver, config).run_all()
     driver.close()
@@ -182,6 +270,13 @@ def reconcile(
 
     results = do_reconcile(figures, expected)
     failed = [r for r in results if not r.passed]
+
+    _audit_log(
+        audit, run_id, "reconciliation", "cli",
+        {"firm": firm_id, "pass_count": len(results) - len(failed), "fail_count": len(failed)},
+    )
+    if audit is not None:
+        audit.close()
 
     if output_json:
         console.print(json.dumps([r.__dict__ for r in results], indent=2))
@@ -224,6 +319,10 @@ def evaluate(
     except Exception as exc:
         typer.echo(f"Error: failed to load config for firm '{firm}': {exc}", err=True)
         raise typer.Exit(code=1)
+
+    run_id = str(uuid.uuid4())
+    audit = _make_audit_logger(run_id)
+
     driver = _get_driver()
     figures = ComputeEngine(driver, config).run_all()
     driver.close()
@@ -296,6 +395,17 @@ def evaluate(
             console.print("[green]All Phase 5 checks PASSED[/green]")
         else:
             console.print("[red]Phase 5 FAILED — see above[/red]")
+
+    _audit_log(
+        audit, run_id, "reconciliation", "cli",
+        {
+            "firm": firm_id,
+            "pass_count": len(recon_results) - len(recon_failed),
+            "fail_count": len(recon_failed),
+        },
+    )
+    if audit is not None:
+        audit.close()
 
     raise typer.Exit(code=exit_code)
 

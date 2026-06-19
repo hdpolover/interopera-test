@@ -296,3 +296,71 @@ def test_reconcile_invalid_firm_exits_nonzero():
 def test_run_invalid_firm_exits_nonzero():
     result = runner.invoke(app, ["run", "--firm", "DOES_NOT_EXIST"])
     assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# Audit log integration test — verifies real rows are written to Postgres
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def postgres_conn():
+    """Return a psycopg connection to the test Postgres, or skip."""
+    dsn = os.environ.get("POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("POSTGRES_DSN not set — skipping audit integration test")
+    import psycopg
+    conn = psycopg.connect(dsn)
+    conn.autocommit = True
+    yield conn
+    conn.close()
+
+
+def test_audit_log_written_by_build_and_run(clean_neo4j_for_cli, postgres_conn):
+    """build-graph + run --firm A must write audit rows to Postgres.
+
+    Asserts:
+    - graph_construction event is present (from build-graph)
+    - config_loaded event is present (from run)
+    - figure_computed events >= 13 (one per figure, from run)
+    - report_exported event is present (from run)
+    - AuditLogger.verify_chain() returns True (hash chain is intact)
+    """
+    # TRUNCATE so we start with a clean chain
+    postgres_conn.execute("TRUNCATE TABLE audit_event RESTART IDENTITY")
+
+    # Patch POSTGRES_DSN into the environment so the CLI commands can see it
+    dsn = os.environ["POSTGRES_DSN"]
+
+    import os as _os
+    orig = _os.environ.get("POSTGRES_DSN")
+
+    # build-graph
+    result_bg = runner.invoke(app, ["build-graph"], env={"POSTGRES_DSN": dsn})
+    assert result_bg.exit_code == 0, f"build-graph failed: {result_bg.output}"
+
+    # run --firm A (JSON mode so we don't need Rich rendering in output)
+    result_run = runner.invoke(app, ["run", "--firm", "A", "--json"], env={"POSTGRES_DSN": dsn})
+    assert result_run.exit_code == 0, f"run failed: {result_run.output}"
+
+    # Query audit rows
+    rows = postgres_conn.execute(
+        "SELECT event_type FROM audit_event ORDER BY id ASC"
+    ).fetchall()
+    event_types = [r[0] for r in rows]
+
+    assert "graph_construction" in event_types, "Missing graph_construction event"
+    assert "config_loaded" in event_types, "Missing config_loaded event"
+    assert "report_exported" in event_types, "Missing report_exported event"
+
+    figure_computed_count = event_types.count("figure_computed")
+    assert figure_computed_count >= 13, (
+        f"Expected >= 13 figure_computed events, got {figure_computed_count}"
+    )
+
+    # Verify hash chain integrity
+    from src.audit.log import AuditLogger
+    al = AuditLogger(dsn)
+    chain_ok = al.verify_chain()
+    al.close()
+    assert chain_ok, "AuditLogger.verify_chain() returned False — hash chain is broken"
