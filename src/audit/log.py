@@ -13,15 +13,23 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Optional
+from typing import Optional
 
 
 class AuditLogger:
     """Write compliance audit events to Postgres audit_event table with hash chain.
 
-    Hash chain: row_hash = sha256(canonical(payload) || prev_hash)
+    Hash chain: row_hash = sha256(canonical(event_type, actor, config_hash, payload) || prev_hash)
     where prev_hash is the previous row's row_hash (genesis seed: "genesis").
-    Canonical serialization uses json.dumps with sort_keys=True for determinism.
+
+    Canonical form: json.dumps of a dict with keys event_type, actor, config_hash,
+    and payload — all serialized with sort_keys=True for determinism.
+
+    Timestamp (ts) is intentionally EXCLUDED from the hash. Including ts would require
+    exact round-trip equality of the timestamp string between insert time and verify
+    time (timezone/precision issues could silently break verify_chain). Excluding ts
+    is safe because event_type + actor + config_hash + payload + prev_hash already
+    uniquely characterize the event content and its position in the chain.
     """
 
     GENESIS_SEED = "genesis"
@@ -39,9 +47,29 @@ class AuditLogger:
         ).fetchone()
         return row[0] if row else self.GENESIS_SEED
 
-    def _compute_row_hash(self, payload: dict, prev_hash: str) -> str:
-        """SHA-256 of canonical(payload) concatenated with prev_hash."""
-        canonical = json.dumps(payload, sort_keys=True)
+    def _compute_row_hash(
+        self,
+        event_type: str,
+        actor: str,
+        config_hash: Optional[str],
+        payload: dict,
+        prev_hash: str,
+    ) -> str:
+        """SHA-256 of canonical(event_type, actor, config_hash, payload) || prev_hash.
+
+        All immutable-intent fields are included so that out-of-band changes to any
+        of them (e.g. actor, event_type) are detected by verify_chain().
+        """
+        canonical = json.dumps(
+            {
+                "event_type": event_type,
+                "actor": actor,
+                "config_hash": config_hash,
+                "payload": payload,
+            },
+            sort_keys=True,
+            default=str,
+        )
         serialized = (canonical + prev_hash).encode("utf-8")
         return hashlib.sha256(serialized).hexdigest()
 
@@ -60,7 +88,7 @@ class AuditLogger:
         config_loaded, report_exported.
         """
         prev_hash = self._last_row_hash()
-        row_hash = self._compute_row_hash(payload, prev_hash)
+        row_hash = self._compute_row_hash(event_type, actor, config_hash, payload, prev_hash)
         self._conn.execute(
             """
             INSERT INTO audit_event
@@ -87,15 +115,16 @@ class AuditLogger:
         The first row's prev_hash is compared against the genesis seed.
         """
         rows = self._conn.execute(
-            "SELECT payload, prev_hash, row_hash FROM audit_event ORDER BY id ASC"
+            "SELECT event_type, actor, config_hash, payload, prev_hash, row_hash "
+            "FROM audit_event ORDER BY id ASC"
         ).fetchall()
-        for payload_raw, prev_hash, stored_hash in rows:
+        for event_type, actor, config_hash, payload_raw, prev_hash, stored_hash in rows:
             # psycopg may return a dict (JSONB) or a string
             if isinstance(payload_raw, str):
                 payload = json.loads(payload_raw)
             else:
                 payload = payload_raw
-            computed = self._compute_row_hash(payload, prev_hash)
+            computed = self._compute_row_hash(event_type, actor, config_hash, payload, prev_hash)
             if computed != stored_hash:
                 return False
         return True

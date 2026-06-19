@@ -118,30 +118,41 @@ def test_hash_chain_is_deterministic(logger):
     import hashlib, json
 
     run_id = str(uuid.uuid4())
-    payloads = [
-        {"event": "graph_construction", "nodes": 5},
-        {"event": "reconciliation", "status": "ok"},
-        {"event": "report_exported", "format": "pdf"},
+    events = [
+        ("graph_construction", "system", None, {"event": "graph_construction", "nodes": 5}),
+        ("reconciliation", "system", None, {"event": "reconciliation", "status": "ok"}),
+        ("report_exported", "system", "abc123", {"event": "report_exported", "format": "pdf"}),
     ]
-    for i, p in enumerate(payloads):
+    for event_type, actor, config_hash, payload in events:
         logger.log_event(
             run_id=run_id,
-            event_type=list(p.keys())[0],
-            actor="system",
-            payload=p,
+            event_type=event_type,
+            actor=actor,
+            payload=payload,
+            config_hash=config_hash,
             retention_class="compliance",
         )
 
     with psycopg.connect(PG_DSN) as conn:
         rows = conn.execute(
-            "SELECT payload, prev_hash, row_hash FROM audit_event ORDER BY id ASC"
+            "SELECT event_type, actor, config_hash, payload, prev_hash, row_hash "
+            "FROM audit_event ORDER BY id ASC"
         ).fetchall()
 
-    # Recompute from genesis
+    # Recompute from genesis using the same canonical form as _compute_row_hash
     prev = "genesis"
-    for payload_raw, stored_prev, stored_hash in rows:
+    for event_type, actor, config_hash, payload_raw, stored_prev, stored_hash in rows:
         assert stored_prev == prev, "prev_hash chain is broken"
-        canonical = json.dumps(payload_raw, sort_keys=True)
+        canonical = json.dumps(
+            {
+                "event_type": event_type,
+                "actor": actor,
+                "config_hash": config_hash,
+                "payload": payload_raw,
+            },
+            sort_keys=True,
+            default=str,
+        )
         expected = hashlib.sha256((canonical + prev).encode()).hexdigest()
         assert stored_hash == expected, "row_hash mismatch — hash chain is not deterministic"
         prev = stored_hash
@@ -262,3 +273,47 @@ def test_all_event_types_are_insertable(logger):
             retention_class="compliance",
         )
     assert logger.verify_chain() is True
+
+
+# ---------------------------------------------------------------------------
+# Hash chain covers metadata: actor tamper detection
+# ---------------------------------------------------------------------------
+
+
+def test_verify_chain_detects_actor_tamper(logger):
+    """verify_chain() returns False when only the actor column is changed out-of-band.
+
+    Because the hash now covers event_type + actor + config_hash + payload,
+    changing actor without recomputing row_hash is detected even though payload
+    is untouched. This test proves that metadata fields are protected.
+    """
+    import psycopg
+
+    run_id = str(uuid.uuid4())
+    logger.log_event(
+        run_id=run_id,
+        event_type="figure_computed",
+        actor="legitimate_user",
+        payload={"figure": "allocation_sgs", "value": "35.0%"},
+        retention_class="compliance",
+    )
+
+    # Disable trigger, silently change actor only, re-enable trigger.
+    # This is the same DDL technique used in the payload-corruption test.
+    # In production, app_role cannot issue DDL — this is superuser-only.
+    with psycopg.connect(PG_DSN) as conn:
+        conn.execute(
+            "ALTER TABLE audit_event DISABLE TRIGGER audit_event_no_update_delete"
+        )
+        conn.execute(
+            "UPDATE audit_event SET actor = 'attacker' WHERE run_id = %s",
+            (run_id,),
+        )
+        conn.execute(
+            "ALTER TABLE audit_event ENABLE TRIGGER audit_event_no_update_delete"
+        )
+        conn.commit()
+
+    assert logger.verify_chain() is False, (
+        "verify_chain() must detect actor tampering — actor is now part of the hash input"
+    )
