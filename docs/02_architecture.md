@@ -1,0 +1,226 @@
+# Architecture
+
+## Overview
+
+This document describes the module architecture of the compliance reporting system. The design principle is that **numbers flow in one direction and never loop back through the LLM**. The LLM is structurally incapable of touching a computed figure.
+
+### Module Map (ASCII)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        CLI (Typer)                          │
+│            src/cli/main.py  ·  src/cli/commands.py          │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+          ┌─────────────────▼──────────────────┐
+          │            Ingestion Layer          │
+          │   holdings_parser.py               │
+          │   guidelines_parser.py             │
+          └──────────┬──────────────┬──────────┘
+                     │              │
+          PositionRecord        RuleChunk
+                     │              │
+          ┌──────────▼──────────────▼──────────┐
+          │            Graph Layer              │
+          │   schema.py  ·  builder.py         │
+          │   queries.py                       │
+          └──────────────────┬─────────────────┘
+                             │ Neo4j
+                    ┌────────▼────────┐
+                    │     Neo4j       │
+                    │   (nodes/edges) │
+                    └────────┬────────┘
+                             │                ┌───────────────────────┐
+          ┌──────────────────▼──────────────┐ │   firm YAML config    │
+          │           Compute Layer         │◄│  src/config/          │
+          │   config_loader.py              │ │  firm_a.yaml          │
+          │   registry.py                   │ │  firm_b.yaml          │
+          │   primitives.py                 │ └───────────────────────┘
+          │   engine.py                     │
+          └──────────┬──────────────────────┘
+                     │ list[Figure]
+         ┌───────────┼───────────┐
+         │           │           │
+┌────────▼──┐  ┌─────▼──────┐  ┌▼────────────────────────┐
+│ Reconcile │  │   Report   │  │   Narrative (LLM)        │
+│           │  │  (xlsx)    │  │   narrative_writer.py    │
+│reconciler │  │report_     │  │                          │
+│   .py     │  │writer.py   │  │  ┌───────────────────┐   │
+└────────┬──┘  └─────┬──────┘  │  │  Firewall Checker │   │
+         │           │          │  │  checker.py       │   │
+         │           │          │  └───────────────────┘   │
+         │           │          └──────────────────────────┘
+         │           │
+         └─────┬─────┘
+               │ all events
+    ┌──────────▼──────────┐
+    │        Audit        │
+    │   Postgres          │
+    │   audit_event table │
+    │   (append-only,     │
+    │    hash-chained)    │
+    └─────────────────────┘
+```
+
+**Key flow invariant:** Numbers emerge from the Compute layer and flow **down** to Reconcile and Report. The Narrative (LLM) branch receives only a read-only copy of the Figure list for firewall checking — it does not write back into Report cells or the Compute layer. No arrow points from Narrative back to Compute, Reconcile, or Report cells.
+
+---
+
+## Layer Descriptions
+
+### Ingestion
+
+**Files:** `src/ingestion/holdings_parser.py`, `src/ingestion/guidelines_parser.py`
+
+**Responsibility:** Parse raw inputs into typed Python objects. Emit `PositionRecord` and `RuleChunk` objects.
+
+- `holdings_parser.py`: reads a CSV file row by row. Each row becomes a `PositionRecord` dataclass. Fields are validated at parse time (numeric fields coerced, required fields checked). Parsing is deterministic — same CSV always produces same records. `extraction_confidence = 1.0` for all position records.
+- `guidelines_parser.py`: splits a PDF into semantic chunks using layout analysis. Each chunk becomes a `RuleChunk`. `chunk_id = sha256(text.encode()).hexdigest()[:8]`. A `passage_summary` field is generated by LLM (prose only, no figures). `extraction_confidence` reflects layout-detection certainty.
+
+**Outputs fed into:** Graph layer (builder.py).
+
+**LLM involvement:** Limited to `passage_summary` generation in `guidelines_parser.py`. The LLM output is stored as a string attribute on `RuleChunk`; it does not flow into any computation.
+
+---
+
+### Graph
+
+**Files:** `src/graph/schema.py`, `src/graph/builder.py`, `src/graph/queries.py`
+
+**Responsibility:** Create and maintain the Neo4j property graph that represents the full compliance universe for a run.
+
+- `schema.py`: defines all node labels, relationship types, and required properties. Serves as the single source of truth for graph structure.
+- `builder.py`: consumes `PositionRecord` and `RuleChunk` lists. Creates nodes, sets `status = PENDING_REVIEW` on all nodes, creates `DERIVED_FROM` provenance edges from rule-derived nodes back to their `SourceChunk`.
+- `queries.py`: read-only Cypher query helpers used by the Compute engine and by the Human-Verify gate to list pending nodes.
+
+**All nodes start PENDING_REVIEW.** The Compute engine refuses to traverse any node that has not been promoted to `VERIFIED`.
+
+**Audit event emitted:** `graph_construction`.
+
+---
+
+### Compute
+
+**Files:** `src/compute/config_loader.py`, `src/compute/registry.py`, `src/compute/primitives.py`, `src/compute/engine.py`
+
+**Responsibility:** Traverse the verified graph and produce the 13 `Figure` objects deterministically.
+
+- `config_loader.py`: loads the firm-specific YAML config. Emits `FirmConfig` dataclass. Hashes the resolved config for the audit log. Emits `config_loaded` audit event.
+- `registry.py`: maps aggregator/comparator names (from graph nodes) to Python callables. Allows new figure types to be registered without touching engine logic.
+- `primitives.py`: pure functions — `sum_notional`, `weighted_avg`, `count_distinct`, `max_exposure`, etc. No I/O, no LLM calls. All use `Decimal` arithmetic.
+- `engine.py`: `ComputeEngine.__init__(driver, config: FirmConfig)` — takes only a Neo4j driver and a FirmConfig. No LLM client parameter. Traverses the graph topologically, calls primitives, assembles `Figure` objects with `graph_path` and `citation` populated.
+
+**LLM involvement: NONE.** Static import gate test asserts that `src/compute/` contains no imports of `anthropic`, `openai`, `httpx`, or `requests`.
+
+**Audit event emitted:** `figure_computed` (once per Figure, 13 total).
+
+---
+
+### Audit
+
+**Files:** `src/audit/emitter.py`, `src/audit/chain.py`, Postgres `audit_event` table
+
+**Responsibility:** Record every significant pipeline event in an append-only, hash-chained log.
+
+- `emitter.py`: `emit_event(conn, event_type, payload, actor)` — inserts one row into `audit_event`. Computes `row_hash = sha256(json.dumps(payload, sort_keys=True) + prev_hash)`.
+- `chain.py`: `verify_chain(conn)` — re-derives all hashes in insertion order and asserts equality. Used in post-run integrity checks.
+- The table has no `UPDATE` or `DELETE` grants for the application role. Rows are immutable after insertion.
+- `retention_class` column: either `compliance` (long-term regulatory) or `operational` (short-term diagnostic).
+
+---
+
+### Reconcile
+
+**Files:** `src/reconcile/reconciler.py`
+
+**Responsibility:** Compare computed Figures against the firm's answer key and produce a per-figure pass/fail result.
+
+- Loads the answer key from xlsx or YAML (firm-configurable).
+- For each Figure, computes `delta = abs(computed_value - expected_value)`. Applies tolerance from `FirmConfig` (default: exact match).
+- Produces `ReconciliationResult`: list of per-figure results + overall pass/fail flag.
+- Contains **no LLM imports**. All reconciliation logic is deterministic Python.
+
+**Audit event emitted:** `reconciliation`.
+
+---
+
+### Report / Narrative / Firewall
+
+**Files:** `src/report/report_writer.py`, `src/report/narrative_writer.py`, `src/firewall/checker.py`
+
+**Responsibility:** Write the xlsx report, optionally generate narrative prose, and enforce the output firewall.
+
+**Report:**
+- `report_writer.py` receives `list[Figure]` only. Writes one row per Figure: figure_id, value, status, citation, graph_path. No narrative string is passed to this writer.
+
+**Narrative (optional, LLM-powered):**
+- `narrative_writer.py` calls the LLM with a prompt that includes the Figure list as context.
+- Before the narrative is written to disk, `checker.py` scans it: every numeric token in the narrative must appear in the `value` set of the computed Figures. If any unrecognised number is found, the narrative is rejected and the audit event records `firewall_passed = False`.
+
+**Firewall:**
+- `src/firewall/checker.py` is the enforcement point for the output firewall.
+- It reads the figure set (source of truth) and the candidate narrative string.
+- Returns `(passed: bool, violations: list[str])`.
+- The firewall is one-directional: it reads numbers from Figures, never writes numbers back to Figures.
+
+**Audit events emitted:** `report_exported`, `narrative_generated`.
+
+---
+
+## Node Types in Neo4j
+
+| Node Label | Description |
+|------------|-------------|
+| `Position` | A single holding record parsed from the CSV. Properties: position_id, notional, currency, maturity_date. |
+| `AssetClass` | Asset class taxonomy node (e.g., IG_CORP, HY_CORP, GOVT). |
+| `Issuer` | Legal entity that issued the security held in a Position. |
+| `ParentIssuer` | Parent entity of an Issuer, used for consolidated exposure calculations. |
+| `Limit` | A numeric limit extracted from a RuleChunk (e.g., max 10% per issuer). |
+| `Aggregate` | An intermediate aggregation node (e.g., total notional in an asset class). |
+| `RiskMetric` | A computed risk measure node referenced during figure computation. |
+| `Threshold` | A boundary value (min/max) from a Limit or RiskMetric. |
+| `BreachAction` | The action to take on a threshold breach (e.g., notify, halt). |
+| `Owner` | The business unit or portfolio manager responsible for a position or limit. |
+| `SourceChunk` | A raw RuleChunk from the guidelines PDF. All rule-derived nodes have a DERIVED_FROM edge pointing here. |
+
+---
+
+## Edge Types
+
+| Relationship | From → To | Description |
+|-------------|-----------|-------------|
+| `IN_ASSET_CLASS` | Position → AssetClass | Classifies a position into an asset class. |
+| `ISSUED_BY` | Position → Issuer | Links a position to its issuer. |
+| `ROLLS_UP_TO` | Issuer → ParentIssuer | Represents parent-child issuer hierarchy. |
+| `APPLIES_TO` | Limit → AssetClass or Issuer | Scopes a limit to a classification or entity. |
+| `HAS_LIMIT` | AssetClass or Issuer → Limit | Associates a limit with its subject. |
+| `CONTRIBUTES_TO` | Position → Aggregate | Indicates a position contributes to an aggregate figure. |
+| `HAS_THRESHOLD` | Limit → Threshold | Links a limit to its numeric boundary. |
+| `HAS_BREACH_ACTION` | Threshold → BreachAction | Links a threshold to the action triggered on breach. |
+| `NOTIFIES` | BreachAction → Owner | Identifies who is notified when a breach action fires. |
+| `GOVERNS` | Limit → Position | Direct governance relationship (used for bespoke limits). |
+| `DERIVED_FROM` | Limit or Threshold → SourceChunk | Provenance edge: traces every rule-derived node back to its source PDF chunk. |
+
+---
+
+## Data Flow Emphasis
+
+The following invariants are maintained by the architecture:
+
+1. **Numbers flow one direction.** A figure value is computed in `engine.py`, written to a `Figure` object, passed to `report_writer.py` (xlsx), passed to `reconciler.py` (comparison), and passed as read-only context to `checker.py` (firewall). No step in this path writes a value back to an upstream layer.
+
+2. **Prose and numbers have separate paths.** The narrative path (`narrative_writer.py` → LLM → `checker.py` → narrative file) is entirely separate from the number path (`engine.py` → `Figure` list → `report_writer.py` → xlsx). The two paths meet **only at the firewall** (`checker.py`), and even there the flow is one-directional: the firewall reads numbers from Figures to validate the prose; it never writes numbers back.
+
+3. **The LLM is structurally incapable of touching a number.** This is not a policy statement enforced by convention — it is enforced by:
+   - Static import gate: `src/compute/` has no LLM library imports (tested).
+   - Dependency injection gate: `ComputeEngine.__init__` accepts no LLM client parameter.
+   - Report writer gate: `report_writer.py` accepts only `list[Figure]`, not a narrative string.
+   - Human-only approval gate: `approve_node()` requires an explicit human `actor` argument.
+
+---
+
+## Key Design Principle
+
+> **The LLM must be structurally incapable of touching a number.**
+
+This is not achieved by prompt engineering or runtime guardrails alone. It is achieved through module boundaries, dependency injection contracts, and static analysis tests that would fail if LLM imports were introduced into the compute layer. The architecture is designed so that even a compromised or hallucinating LLM cannot produce a number that ends up in the xlsx report or in the reconciliation outcome.
