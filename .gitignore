@@ -1,0 +1,5 @@
+*.zip
+/extracted/
+out/
+__pycache__/
+.env
