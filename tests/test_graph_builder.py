@@ -186,3 +186,197 @@ def test_load_rules_high_confidence_is_verified(driver, sample_chunks):
         )
         count = result.single()["cnt"]
     assert count == len(high_conf)
+
+
+# --- Review round 1 tests (I-1..I-4, M-1) ---
+
+
+def test_provenance_on_nodes_and_edges(driver, sample_positions):
+    """I-1: Position nodes and IN_ASSET_CLASS edges must all carry the five provenance props."""
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_positions
+    apply_schema(driver)
+    load_positions(driver, sample_positions)
+    with driver.session() as session:
+        # Check a Position node has all five provenance props non-null
+        result = session.run(
+            """
+            MATCH (p:Position {instrument_id: 'SGS-01'})
+            RETURN p.source_doc AS source_doc,
+                   p.page AS page,
+                   p.chunk_id AS chunk_id,
+                   p.ingested_at AS ingested_at,
+                   p.extraction_confidence AS extraction_confidence
+            """
+        )
+        record = result.single()
+    assert record["source_doc"] is not None, "Position.source_doc must be set"
+    assert record["page"] is not None, "Position.page must be set"
+    assert record["chunk_id"] is not None, "Position.chunk_id must be set"
+    assert record["ingested_at"] is not None, "Position.ingested_at must be set"
+    assert record["extraction_confidence"] is not None, "Position.extraction_confidence must be set"
+
+    with driver.session() as session:
+        # IN_ASSET_CLASS edges must all have provenance — zero with nulls means all are set
+        result = session.run(
+            """
+            MATCH ()-[r:IN_ASSET_CLASS]->()
+            WHERE r.source_doc IS NULL OR r.ingested_at IS NULL
+            RETURN count(r) AS bad
+            """
+        )
+        bad = result.single()["bad"]
+    assert bad == 0, f"Found {bad} IN_ASSET_CLASS edges missing provenance props"
+
+
+def test_asset_class_slug_values(driver, sample_positions):
+    """I-2: AssetClass nodes must carry correct URL-safe slugs."""
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_positions
+    from src.ingestion.holdings_parser import PositionRecord
+    from decimal import Decimal
+
+    apply_schema(driver)
+    # Load positions that include High Yield Bonds and Structured Credit
+    extra_positions = [
+        PositionRecord(
+            instrument_id="HY-01",
+            instrument_name="APAC Yield 5.5% 2027",
+            asset_class="High Yield Bonds",
+            issuer_name="Garuda Energy Tbk",
+            issuer_type="corporate",
+            parent_issuer=None,
+            credit_rating="BB",
+            downgraded_from=None,
+            market_value_sgd=Decimal("5000000"),
+            modified_duration=Decimal("3.0"),
+        ),
+        PositionRecord(
+            instrument_id="SC-01",
+            instrument_name="AAA ABS Series 2024-1",
+            asset_class="Structured Credit",
+            issuer_name="Harbour ABS Trust",
+            issuer_type="spv",
+            parent_issuer=None,
+            credit_rating="AAA",
+            downgraded_from=None,
+            market_value_sgd=Decimal("6000000"),
+            modified_duration=Decimal("2.5"),
+        ),
+    ]
+    load_positions(driver, extra_positions)
+
+    with driver.session() as session:
+        result = session.run(
+            "MATCH (a:AssetClass {name: 'High Yield Bonds'}) RETURN a.slug AS slug"
+        )
+        hy_slug = result.single()["slug"]
+
+        result = session.run(
+            "MATCH (a:AssetClass {name: 'Structured Credit'}) RETURN a.slug AS slug"
+        )
+        sc_slug = result.single()["slug"]
+
+    assert hy_slug == "high_yield", f"Expected 'high_yield', got '{hy_slug}'"
+    assert sc_slug == "structured_credit", f"Expected 'structured_credit', got '{sc_slug}'"
+
+
+def test_contributes_to_edges_for_non_ig(driver):
+    """I-3 (CRITICAL): Both High Yield Bonds and Structured Credit must have CONTRIBUTES_TO->non_ig."""
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_positions
+    from src.ingestion.holdings_parser import PositionRecord
+    from decimal import Decimal
+
+    apply_schema(driver)
+    positions = [
+        PositionRecord(
+            instrument_id="HY-01",
+            instrument_name="APAC Yield 5.5% 2027",
+            asset_class="High Yield Bonds",
+            issuer_name="Garuda Energy Tbk",
+            issuer_type="corporate",
+            parent_issuer=None,
+            credit_rating="BB",
+            downgraded_from=None,
+            market_value_sgd=Decimal("5000000"),
+            modified_duration=Decimal("3.0"),
+        ),
+        PositionRecord(
+            instrument_id="SC-01",
+            instrument_name="AAA ABS Series 2024-1",
+            asset_class="Structured Credit",
+            issuer_name="Harbour ABS Trust",
+            issuer_type="spv",
+            parent_issuer=None,
+            credit_rating="AAA",
+            downgraded_from=None,
+            market_value_sgd=Decimal("6000000"),
+            modified_duration=Decimal("2.5"),
+        ),
+    ]
+    load_positions(driver, positions)
+
+    with driver.session() as session:
+        result = session.run(
+            """
+            MATCH (a:AssetClass)-[:CONTRIBUTES_TO]->(agg:Aggregate {name:'non_ig'})
+            RETURN a.slug AS slug ORDER BY slug
+            """
+        )
+        slugs = [record["slug"] for record in result]
+
+    assert slugs == ["high_yield", "structured_credit"], (
+        f"Expected ['high_yield', 'structured_credit'], got {slugs}"
+    )
+
+
+def test_distinct_source_chunk_per_rule_area(driver, sample_chunks):
+    """I-4: Two different rule-area Limits must reach SourceChunks with distinct chunk_ids."""
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_rules
+    apply_schema(driver)
+    load_rules(driver, sample_chunks)
+
+    with driver.session() as session:
+        # Fetch chunk_id for allocation_limit Limit
+        result = session.run(
+            """
+            MATCH (l:Limit {rule_type: 'allocation_limit'})-[:DERIVED_FROM]->(sc:SourceChunk)
+            RETURN sc.chunk_id AS chunk_id
+            """
+        )
+        alloc_record = result.single()
+
+        # Fetch chunk_id for liquidity_requirement Limit
+        result = session.run(
+            """
+            MATCH (l:Limit {rule_type: 'liquidity_requirement'})-[:DERIVED_FROM]->(sc:SourceChunk)
+            RETURN sc.chunk_id AS chunk_id
+            """
+        )
+        liquid_record = result.single()
+
+    assert alloc_record is not None, "allocation_limit Limit -> SourceChunk not found"
+    assert liquid_record is not None, "liquidity_requirement Limit -> SourceChunk not found"
+    assert alloc_record["chunk_id"] != liquid_record["chunk_id"], (
+        "allocation_limit and liquidity_requirement must have DIFFERENT chunk_ids, "
+        f"got both = '{alloc_record['chunk_id']}'"
+    )
+
+
+def test_structural_node_status_is_verified(driver, sample_positions):
+    """M-1: AssetClass (and other structural nodes) must have status='VERIFIED'."""
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_positions
+    apply_schema(driver)
+    load_positions(driver, sample_positions)
+
+    with driver.session() as session:
+        result = session.run(
+            "MATCH (a:AssetClass) WHERE a.status <> 'VERIFIED' OR a.status IS NULL "
+            "RETURN count(a) AS bad"
+        )
+        bad = result.single()["bad"]
+
+    assert bad == 0, f"Found {bad} AssetClass nodes without status='VERIFIED'"

@@ -36,6 +36,10 @@ def load_positions(driver, positions: list["PositionRecord"]) -> None:
 
     All nodes carry provenance props: source_doc, page, chunk_id, ingested_at,
     extraction_confidence.  Idempotent via MERGE.
+
+    Structural nodes (AssetClass, Issuer, ParentIssuer, Aggregate) are always
+    status='VERIFIED' because they are deterministically derived from authoritative
+    holdings CSV data — no confidence-gating is needed (unlike LLM-extracted Limits).
     """
     ingested_at = _now_iso()
 
@@ -81,7 +85,8 @@ def load_positions(driver, positions: list["PositionRecord"]) -> None:
                     a.page                  = 0,
                     a.chunk_id              = $asset_class,
                     a.ingested_at           = $ingested_at,
-                    a.extraction_confidence = 1.0
+                    a.extraction_confidence = 1.0,
+                    a.status                = 'VERIFIED'
                 WITH a
                 MATCH (p:Position {instrument_id: $instrument_id})
                 MERGE (p)-[r:IN_ASSET_CLASS]->(a)
@@ -106,7 +111,8 @@ def load_positions(driver, positions: list["PositionRecord"]) -> None:
                         agg.page                  = 0,
                         agg.chunk_id              = 'non_ig',
                         agg.ingested_at           = $ingested_at,
-                        agg.extraction_confidence = 1.0
+                        agg.extraction_confidence = 1.0,
+                        agg.status                = 'VERIFIED'
                     WITH agg
                     MATCH (a:AssetClass {name: $asset_class})
                     MERGE (a)-[r:CONTRIBUTES_TO]->(agg)
@@ -129,7 +135,8 @@ def load_positions(driver, positions: list["PositionRecord"]) -> None:
                     i.page                   = 0,
                     i.chunk_id               = $issuer_name,
                     i.ingested_at            = $ingested_at,
-                    i.extraction_confidence  = 1.0
+                    i.extraction_confidence  = 1.0,
+                    i.status                 = 'VERIFIED'
                 WITH i
                 MATCH (p:Position {instrument_id: $instrument_id})
                 MERGE (p)-[r:ISSUED_BY]->(i)
@@ -154,7 +161,8 @@ def load_positions(driver, positions: list["PositionRecord"]) -> None:
                         pi.page                  = 0,
                         pi.chunk_id              = $parent_issuer,
                         pi.ingested_at           = $ingested_at,
-                        pi.extraction_confidence = 1.0
+                        pi.extraction_confidence = 1.0,
+                        pi.status                = 'VERIFIED'
                     WITH pi
                     MATCH (i:Issuer {name: $issuer_name})
                     MERGE (i)-[r:ROLLS_UP_TO]->(pi)
