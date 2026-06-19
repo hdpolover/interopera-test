@@ -14,7 +14,7 @@ Updated as each task lands. Step-level checkboxes live in the plan; this is the 
 | 4 | Graph schema + builder | 2 | ✅ | 24d6ec7 | 14/14 | Approved+fix; provenance on nodes+edges tested, slug/CONTRIBUTES_TO/distinct-chunk asserted, status on all nodes |
 | 5 | Graph queries (selectors) | 2/3 | ✅ | 4bad2f8 | 15/15 (+1 skip) | Approved; fallen-angel={COR-05} proven (BBB- excl/BB+ incl); 2 obligations → Task 10 |
 | 6 | Compute primitives | 3 | ✅ | 78d04a4 | 23/23 | Approved; Decimal-only, exact formatters, real AST import-gate; 4 Minor → final triage |
-| 7 | Figure dataclass + registry | 3 | ⬜ | — | — | fields incl. utilization + utilization_basis |
+| 7 | Figure dataclass + registry | 3 | ✅ | c79ec1b | 8/8 | Verified by controller; exact field order + all 13 utilization_basis correct |
 | 8 | Config loader + pydantic validation | 3/4 | ⬜ | — | — | base + firm merge, fail-fast |
 | 9 | Compute engine — Firm A figures | 3 ⭐ | ⬜ | — | — | 13 figures reconcile exact; non-IG path == brief |
 | 10 | Verify gate | 1/2 | ⬜ | — | — | blocks on PENDING_REVIEW rule node |
