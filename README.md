@@ -154,7 +154,7 @@ Dev tools (`pytest-cov`, `mypy`, `bandit`, `ruff`) are included in `requirements
 available inside the container. Run them via Make:
 
 ```bash
-# Run tests with coverage report (84% total)
+# Run tests with coverage report (86% total)
 make coverage
 
 # Type-check all source files (0 errors)
@@ -197,6 +197,30 @@ both firms and exits 0 only when reconcile + traceability + firewall all pass.
 | 3 | **No LLM numbers** — six containment gates prevent the LLM from injecting values into computed figures | `tests/test_llm_containment.py` (6 gates) + `tests/test_firewall.py` verify the firewall rejects any narrative number not in the computed set |
 | 4 | **Reconcile Firm A** — 13/13 figures match the answer key | `tests/test_evaluate.py` end-to-end; also `docker compose run --rm app python -m src.cli.main evaluate --firm A` |
 | 5 | **Firm B config-only** — no engine code edit required | `tests/test_engine_firm_b.py` + grep gate in `tests/test_llm_containment.py` assert no firm branch in `src/compute/engine.py` |
+
+---
+
+## How Rules Are Ingested (transcription vs. LLM)
+
+By design, the default pipeline does **not** parse the guidelines PDF at run time. Rule
+content is loaded from a deterministic, hand-verified transcription of
+`sample_fund_guidelines.pdf` (`_STUB_PASSAGES` in `src/ingestion/guidelines_parser.py`).
+Each chunk's `source_doc`, `page`, and section label were checked against the actual PDF, so
+tracing `figure → graph path → SourceChunk → page` lands on the correct section of the
+source document.
+
+This is a deliberate choice for **reproducibility** (constraint 1): an LLM extracting the
+same PDF could yield different chunk IDs, pages, or confidences across runs, breaking
+byte-identical output. An LLM-assisted extraction path exists in the same module
+(`parse_guidelines(pdf_path, llm_client=...)`, using `pdfplumber` + an injected client) to
+show how the same `RuleChunk` contract is populated at scale — it is off by default.
+See `docs/DECISIONS.md §24`.
+
+The transcription includes one **deliberately low-confidence** chunk (the §3.2
+single-counterparty 5% cap, `extraction_confidence = 0.78`) so the human-verification gate
+is demonstrable: it loads `PENDING_REVIEW` and surfaces in `verify-graph` for a human to
+approve. It anchors none of the 13 reported figures, so the figures compute regardless
+(`docs/DECISIONS.md §25`).
 
 ---
 
@@ -298,7 +322,7 @@ assert logger.verify_chain()
 │   └── report/                # xlsx report writer
 ├── bin/
 │   └── fundra                 # Shell wrapper — use instead of full docker compose run
-├── tests/                     # Full test suite (315 tests across 20 files)
+├── tests/                     # Full test suite (348 tests across 27 files)
 ├── docker-compose.yml
 ├── init.sql                   # Postgres schema + append-only trigger
 └── .env.example               # Port override documentation

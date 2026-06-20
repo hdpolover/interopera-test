@@ -152,10 +152,12 @@ def test_all_positions_sorted(loaded_graph):
 def test_list_pending_nodes(loaded_graph):
     """list_pending_nodes returns all PENDING_REVIEW nodes; every returned node has status=PENDING_REVIEW.
 
-    Note: all stub SourceChunk/Limit nodes produced by guidelines_parser have extraction_confidence
-    >= 0.92 (well above the 0.85 threshold), so they are all VERIFIED after load_rules.  To make
-    this test meaningful we inject a synthetic Limit node with PENDING_REVIEW status, assert it
-    appears in the listing AND that every item returned has the correct status, then clean it up.
+    Note: the figure-anchoring stub SourceChunk/Limit nodes all have extraction_confidence
+    >= 0.92 (well above the 0.85 threshold) and load VERIFIED. The one exception is the
+    low-confidence counterparty_limit chunk (0.78), which loads PENDING_REVIEW by design but
+    anchors no figure. To keep this test self-contained we also inject a synthetic Limit node
+    with PENDING_REVIEW status, assert it appears in the listing AND that every item returned
+    has the correct status, then clean it up.
     """
     from src.graph.queries import list_pending_nodes
 

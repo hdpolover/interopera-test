@@ -105,17 +105,23 @@ It accepts only the Figure list and an output path. No narrative string is passe
 
 ### Gate 4: Output Firewall
 
-Every numeric token in LLM-generated narrative must appear in the set of computed figure values. This is enforced by `src/firewall/checker.py`:
+Every numeric token in LLM-generated narrative must appear in the set of computed figure values. This is enforced by `src/firewall/checker.py`. The real signature and behaviour (simplified here; see the module for the full implementation):
 
 ```python
-def check_narrative(narrative: str, figures: list[Figure]) -> tuple[bool, list[str]]:
-    allowed_numbers = {str(f.value) for f in figures}
-    violations = []
-    for token in extract_numeric_tokens(narrative):
-        if token not in allowed_numbers:
-            violations.append(token)
-    return (len(violations) == 0, violations)
+def check_firewall(narrative: str, figures: list[Figure]) -> FirewallResult:
+    # Computed set covers value, utilization, AND limit fields of every figure.
+    computed = _build_computed_set(figures)        # symmetric normalization applied
+    stripped = _HEX_TOKEN_RE.sub(" ", narrative)   # drop chunk-ID/hex tokens first
+    offending = []
+    for raw in extract_numeric_tokens(stripped):
+        if _is_allowlisted(raw, stripped):         # calendar years, section refs
+            continue
+        if normalize_token(raw) not in computed:   # currency/comma/unit-normalized
+            offending.append(raw)
+    return FirewallResult(passed=not offending, offending_numbers=offending, ...)
 ```
+
+Two details matter for soundness and are easy to get wrong: (a) the computed set is built with the *same* `normalize_token()` applied to the figure fields, so `"SGD 38,790 / bp"` and a narrative `"38,790"` compare equal; and (b) hex/chunk-ID tokens are stripped *before* extraction so an identifier's digit prefix (e.g. `"827726"` from `"827726a0"`) can never be smuggled in as a fabricated number.
 
 The firewall is the only point where the prose path and the number path intersect. The firewall reads numbers from Figures (source of truth). It never writes numbers to Figures. If `firewall_passed = False`, the narrative is rejected and an audit event is logged.
 
@@ -126,10 +132,11 @@ The output firewall (`src/firewall/checker.py`) is the primary mechanism for det
 `approve_node` has the signature:
 
 ```python
-def approve_node(driver: neo4j.Driver, node_id: str, actor: str) -> AuditEvent:
+def approve_node(driver: neo4j.Driver, node_id: str, actor: str,
+                 node_label: str | None = None) -> None:
 ```
 
-The `actor` parameter is required and must be a non-empty string identifying the human who approved the node. The function raises `ValueError` if `actor` is empty or None. There is no code path by which the LLM can call this function — it has no reference to the Neo4j driver, and even if it did, the audit event would record the actor as the LLM identifier, which would be rejected by the compliance review process.
+The `actor` parameter is required and must be a non-empty string identifying the human who approved the node. The function raises `ValueError` if `actor` is empty or whitespace-only. (The optional `node_label` lets a caller disambiguate by label so a same-valued property on a different node type cannot be approved by accident.) The `node_verified` audit event recording the approval is written by the CLI caller, not by `approve_node` itself. There is no code path by which the LLM can call this function — it has no reference to the Neo4j driver, and even if it did, the audit event would record the actor as the LLM identifier, which would be rejected by the compliance review process.
 
 ### Gate 6: Pure-Code Phase 5 Checks
 
@@ -162,7 +169,8 @@ figure.value
     ← graph_path is a Cypher-style string of all nodes/edges traversed, all status=VERIFIED
     ← each Limit/Threshold node has a DERIVED_FROM edge
     ← DERIVED_FROM points to SourceChunk whose chunk_id matches figure.citation["chunk_id"]
-    ← SourceChunk.text is the raw PDF passage that justified the limit
+    ← SourceChunk.passage is the raw PDF passage that justified the limit
+      (SourceChunk.passage_summary + .page give the human-readable citation)
 ```
 
 A regulator with access to the Neo4j database and the source PDF can reconstruct this chain from the xlsx report cell to the PDF sentence in under five minutes. This chain is also captured in the `figure_computed` audit event (`graph_path` and `citation` are stored in the event payload).
@@ -243,11 +251,13 @@ No code changes required. The `config_loader.py` hashes the resolved effective c
 
 With the three knobs set as above, exactly three figures change between Firm A and Firm B. All figure *values* remain in percent/years/SGD units in both firms; only the *utilization* column formatting changes for Firm B.
 
+Firm A renders utilization as a 1-decimal percentage (`percent_1dp`); Firm B renders the *same* underlying ratio as truncated basis points (`truncated_bps`). The value/status changes below come from the `include_fallen_angels` and `group_key` knobs; the format change comes from the `utilization_format` knob.
+
 | Figure | Firm A | Firm B |
 |--------|--------|--------|
-| Aggregate non-IG exposure | 15.0% → **OK**; utilization 1500 bps | 21.0% → **BREACH** (fallen angels now included); utilization **10500 bps** (truncated-bps format) |
-| Largest GRE issuer (concentration) | 7.0% → **OK**; issuer-level grouping; utilization 5833 bps | 13.0% → **BREACH** (Redhill Holdings = Redhill Power 7M + Redhill Transport 6M, grouped at parent_issuer); utilization **10833 bps** |
-| SGS utilization (representative) | 58.3% → **OK**; rendered "58.3%" | **5833 bps** (same value, truncated-bps format) |
+| Aggregate non-IG exposure | 15.0% → **OK**; utilization **75.0%** | 21.0% → **BREACH** (fallen angels now included); utilization **10500 bps** |
+| Largest GRE issuer (concentration) | 7.0% → **OK**; issuer-level grouping; utilization **58.3%** | 13.0% → **BREACH** (Redhill Holdings = Redhill Power 7M + Redhill Transport 6M, grouped at parent_issuer); utilization **10833 bps** |
+| SGS utilization (representative) | 58.3% → **OK**; rendered "58.3%" | **5833 bps** (same 0.5833 ratio, truncated-bps format) |
 
 Note: GRE issuer exposure is **13.0%** under Firm B's `parent_issuer` grouping — not 8.0%. The 8.0% figure applies only at the individual-issuer level (Firm A's `group_key: issuer`).
 

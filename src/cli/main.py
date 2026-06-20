@@ -97,14 +97,20 @@ def _audit_log(
 @app.command()
 def ingest(
     holdings: str = typer.Option(str(SAMPLE_DOCS / "sample_holdings.csv"), help="Holdings CSV path"),
-    guidelines: Optional[str] = typer.Option(None, help="Guidelines PDF path"),
+    guidelines: Optional[str] = typer.Option(
+        None,
+        help="[reserved] Guidelines PDF path for LLM-assisted extraction. The default "
+        "pipeline loads the deterministic transcription regardless (no LLM client is "
+        "wired); see docs/DECISIONS.md §24.",
+    ),
 ) -> None:
-    """Parse holdings CSV and guidelines PDF."""
+    """Parse holdings CSV and guidelines rules (deterministic transcription by default)."""
     from src.ingestion.holdings_parser import parse_holdings
     from src.ingestion.guidelines_parser import parse_guidelines
 
     positions = parse_holdings(holdings)
     console.print(f"Parsed {len(positions)} positions from {holdings}")
+    # llm_client=None → deterministic transcription (see docs/DECISIONS.md §24).
     chunks = parse_guidelines(pdf_path=guidelines, llm_client=None)
     console.print(f"Parsed {len(chunks)} rule chunks")
 
@@ -112,9 +118,14 @@ def ingest(
 @app.command(name="build-graph")
 def build_graph(
     holdings: str = typer.Option(str(SAMPLE_DOCS / "sample_holdings.csv"), help="Holdings CSV path"),
-    guidelines: Optional[str] = typer.Option(None, help="Guidelines PDF path (default: sample_docs/sample_fund_guidelines.pdf)"),
+    guidelines: Optional[str] = typer.Option(
+        None,
+        help="[reserved] Guidelines PDF path for LLM-assisted extraction. The default "
+        "pipeline loads the deterministic transcription regardless (no LLM client is "
+        "wired); see docs/DECISIONS.md §24.",
+    ),
 ) -> None:
-    """Build Neo4j knowledge graph from holdings and guidelines."""
+    """Build Neo4j knowledge graph from holdings and guidelines (deterministic transcription)."""
     from src.graph.schema import apply_schema
     from src.graph.builder import load_positions, load_rules, load_risk_metrics
     from src.ingestion.holdings_parser import parse_holdings
@@ -127,6 +138,7 @@ def build_graph(
     positions = parse_holdings(holdings)
     load_positions(driver, positions)
     console.print(f"Loaded {len(positions)} positions into graph")
+    # llm_client=None → deterministic transcription (see docs/DECISIONS.md §24).
     chunks = parse_guidelines(pdf_path=guidelines, llm_client=None)
     load_rules(driver, chunks)
     load_risk_metrics(driver, chunks)

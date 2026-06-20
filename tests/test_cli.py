@@ -85,14 +85,23 @@ def clean_neo4j_for_cli(monkeypatch):
         load_rules(driver, chunks)
         load_risk_metrics(driver, chunks)
 
-        # Verify: no PENDING_REVIEW nodes must remain after a clean build.
+        # A clean build leaves the low-confidence counterparty_limit chunk (0.78)
+        # PENDING_REVIEW by design (see docs/DECISIONS.md §25). The CLI tests below
+        # exercise the post-approval pipeline, so simulate the human-verification
+        # gate here — approve every pending node, exactly as `verify-graph
+        # --approve-all` would — then assert the graph is fully VERIFIED.
+        from src.graph.queries import list_pending_nodes, approve_node
+
+        for node in list_pending_nodes(driver):
+            approve_node(driver, node["node_id"], actor="test_fixture")
+
         with driver.session() as session:
             result = session.run(
                 "MATCH (n {status: 'PENDING_REVIEW'}) RETURN count(n) AS cnt"
             )
             pending_count = result.single()["cnt"]
         assert pending_count == 0, (
-            f"Expected 0 PENDING_REVIEW nodes after clean build, got {pending_count}"
+            f"Expected 0 PENDING_REVIEW nodes after approve-all, got {pending_count}"
         )
 
         yield  # test runs here

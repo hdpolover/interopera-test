@@ -7,9 +7,9 @@
 
 This report documents live verification of the InterOpera fund compliance reporting system. The system is a fully automated pipeline that ingests portfolio holdings and regulatory guidelines, builds a Neo4j knowledge graph, computes 13 compliance figures against MAS-style fund investment limits, generates a narrative, and exports results to Excel with a full audit trail in Postgres.
 
-**315/315 tests pass.** All 13 figures compute correctly for both Firm A (13/13 reconcile PASS vs answer key) and Firm B (13/13 PASS). Three bonus features are implemented: replay viewer, configuration DSL with live preview, and narrative source retrieval. Two additional CLI commands expose Phase 2 multi-hop graph traversal (`query-metric`) and audit log visibility (`show-audit-log`). Excel reports now include status-based row highlighting and auto-fit column widths.
+**348/348 tests pass.** All 13 figures compute correctly for both Firm A (13/13 reconcile PASS vs answer key) and Firm B (13/13 PASS). Three bonus features are implemented: replay viewer, configuration DSL with live preview, and narrative source retrieval. Two additional CLI commands expose Phase 2 multi-hop graph traversal (`query-metric`) and audit log visibility (`show-audit-log`). Excel reports now include status-based row highlighting and auto-fit column widths.
 
-**Code quality:** 84% test coverage, mypy 0 errors, bandit 0 medium/high issues. GitHub Actions CI runs the full suite on every push via native service containers. Firm C (`config/firm_c.yaml`) demonstrates a third independent configuration, proving config-only firm switching generalises beyond two firms.
+**Code quality:** 86% test coverage, mypy 0 errors, bandit 0 medium/high issues. GitHub Actions CI runs the full suite on every push via native service containers. Firm C (`config/firm_c.yaml`) demonstrates a third independent configuration, proving config-only firm switching generalises beyond two firms.
 
 **Default model: `claude-sonnet-4-6`.** Overridable via `ANTHROPIC_MODEL` env var. `evaluate` always uses the deterministic stub narrator (firewall check is reproducible). The `narrate` command uses the live LLM. See `docs/DECISIONS.md §23` and `docs/model_comparison.md` for a full three-model comparison (Haiku / Sonnet / Opus 4.8).
 
@@ -139,28 +139,28 @@ config/firm_b.yaml ────┘                                              
 ### 3.1 Test Suite
 
 ```text
-315 passed in 8.55s
+348 passed in 5.12s
 ```
 
 27 test modules covering CLI commands, graph builder/queries, compute engine (Firm A + B), firewall, reconciler, audit log, LLM containment, determinism, Phase 5, and all bonus features (replay, DSL, narrative retrieval).
 
 | Test File | Tests | Area |
 |---|---|---|
+| test_primitives.py | 30 | Decimal arithmetic helpers |
 | test_cli.py | 30 | CLI commands, exit codes |
-| test_primitives.py | 24 | Decimal arithmetic helpers |
-| test_graph_builder.py | 22 | Neo4j node/relationship loading |
+| test_graph_builder.py | 27 | Neo4j node/relationship loading |
+| test_graph_queries.py | 22 | Cypher query selectors |
 | test_engine_firm_a.py | 21 | 13 figures Firm A |
-| test_graph_queries.py | 20 | Cypher query selectors |
+| test_firewall.py | 18 | Numeric token firewall |
+| test_holdings_parser.py | 17 | CSV → PositionRecord |
+| test_evaluate.py | 17 | Phase 5 gate |
 | test_integration.py | 16 | Full pipeline end-to-end |
-| test_firewall.py | 16 | Numeric token firewall |
-| test_evaluate.py | 16 | Phase 5 gate |
+| test_guidelines_parser.py | 15 | PDF → RuleChunk (incl. low-confidence gate) |
 | test_engine_firm_b.py | 15 | 13 figures Firm B |
-| test_guidelines_parser.py | 11 | PDF → RuleChunk |
+| test_audit_log.py | 14 | Audit log + hash chain |
 | test_narrative_retrieval.py | 10 | Passage retrieval for LLM |
-| test_holdings_parser.py | 10 | CSV → PositionRecord |
 | test_dsl.py | 10 | DSL generate + preview |
-| test_report_writer.py | 9 | xlsx report writing |
-| test_audit_log.py | 9 | Audit log + hash chain |
+| test_report_writer.py | 10 | xlsx report writing |
 | test_replay.py | 8 | Replay viewer |
 | test_registry.py | 8 | Figure registry |
 | test_verify_gate.py | 7 | PENDING_REVIEW gate |
@@ -173,7 +173,7 @@ config/firm_b.yaml ────┘                                              
 | test_determinism.py | 6 | Double-run byte-identical |
 | test_readme.py | 4 | README coverage |
 | test_phase5.py | 4 | Phase 5 integration |
-| **Total** | **315** | |
+| **Total** | **348** | |
 
 ### 3.2 Firm A — 13 Computed Figures
 
@@ -591,7 +591,7 @@ sample_docs/
 ├── sample_fund_guidelines.pdf  # Source guidelines document
 └── sample_holdings.csv         # 13-position holdings data
 
-tests/                          # 27 test files, 315 tests total
+tests/                          # 27 test files, 348 tests total
 out/
 ├── figures_firm_a.json         # Last computed Firm A figures (provenance included)
 ├── figures_firm_b.json         # Last computed Firm B figures
@@ -617,48 +617,49 @@ Name                                 Stmts   Miss  Cover   Missing
 ------------------------------------------------------------------
 src/__init__.py                          0      0   100%
 src/audit/__init__.py                    0      0   100%
-src/audit/log.py                        45     10    78%   124, 137-159
+src/audit/log.py                        54      2    96%   103, 203
 src/cli/__init__.py                      0      0   100%
 src/cli/commands/__init__.py             0      0   100%
-src/cli/commands/replay_helpers.py      75      3    96%   64, 106, 124
-src/cli/main.py                        435    146    66%   58-59, 77, 90-96, 137-167, 187-189, 237-242, 264-266, 291, 302-303, 325-327, 341, 345-346, 350-351, 357-358, 361-382, 398, 445-449, 457-480, 528-562, 571-605, 693-696, 731
+src/cli/commands/replay_helpers.py      78      4    95%   49, 65, 108, 128
+src/cli/main.py                        450    153    66%   46, 71-72, 90, 108-115, 162-192, 217-221, 245-247, 287-288, 307-309, 333, 344-345, 366-368, 381, 385-386, 390-391, 399-400, 403-424, 440, 483-487, 495-524, 572-607, 616-650, 738-741, 776
 src/compute/__init__.py                  0      0   100%
-src/compute/config_loader.py            42      1    98%   51
-src/compute/engine.py                  183     12    93%   113, 126, 152, 169, 180, 199, 202, 244, 276, 294, 327, 382
-src/compute/primitives.py               58      0   100%
-src/compute/registry.py                 24      0   100%
+src/compute/config_loader.py            44      1    98%   51
+src/compute/engine.py                  219     12    95%   39, 124, 137, 184, 195, 214, 217, 256, 305, 323, 356, 415
+src/compute/primitives.py               66      0   100%
+src/compute/registry.py                 23      0   100%
 src/firewall/__init__.py                 0      0   100%
-src/firewall/checker.py                 52      0   100%
+src/firewall/checker.py                 58      0   100%
 src/graph/__init__.py                    0      0   100%
-src/graph/builder.py                    52      1    98%   197
-src/graph/queries.py                    92     16    83%   240-246, 251-257, 262-268, 313, 332-346
+src/graph/builder.py                    66      1    98%   222
+src/graph/constants.py                   2      0   100%
+src/graph/queries.py                   113     20    82%   305-311, 316-322, 327-333, 356-358, 382, 395, 414-428
 src/graph/schema.py                      6      0   100%
 src/ingestion/__init__.py                0      0   100%
-src/ingestion/guidelines_parser.py      46     19    59%   201-232
-src/ingestion/holdings_parser.py        28      0   100%
+src/ingestion/guidelines_parser.py      49      6    88%   233-234, 243, 248, 253, 269
+src/ingestion/holdings_parser.py        41      0   100%
 src/narrative/__init__.py                2      0   100%
-src/narrative/narrator.py               67      8    88%   151-155, 196-198, 221
+src/narrative/narrator.py               74      8    89%   167-171, 212-213, 240
 src/reconcile/__init__.py                0      0   100%
 src/reconcile/reconciler.py             71      3    96%   67, 72, 144
 src/report/__init__.py                   0      0   100%
-src/report/writer.py                    62      0   100%
+src/report/writer.py                    86      0   100%
 ------------------------------------------------------------------
-TOTAL                                 1340    219    84%
-315 passed in 6.28s
+TOTAL                                 1502    210    86%
+348 passed in 5.12s
 ```
 
-**Total coverage: 84%.** The 315/315 tests all pass.
+**Total coverage: 86%.** The 348/348 tests all pass.
 
-The uncovered 16% splits into two deliberate categories — not gaps in test discipline:
+The uncovered 14% is concentrated in two deliberate areas — not gaps in test discipline:
 
-**LLM-gated paths (~7%) — untestable without a live API key:**
-- `src/ingestion/guidelines_parser.py` (59%) — lines 201–232 are the LLM-assisted PDF extraction path. Only activates when `ANTHROPIC_API_KEY` is present; CI always takes the stub path by design.
-- `src/narrative/narrator.py` — same pattern: LLM branch skipped in CI.
+**CLI dispatch glue (~10%) — `src/cli/main.py` (66%):** the bulk of the uncovered code is interactive command bodies and 2-line error handlers (`typer.echo` + `raise typer.Exit`) that fire only when Neo4j is down, a config file is missing, etc. Triggering them requires the full Docker stack in a broken state; testing them would exercise Docker failure modes, not application logic. The command logic itself is covered end-to-end via the `evaluate`/`run` integration tests.
 
-**CLI dispatch glue (~9%) — thin error-handling branches:**
-- `src/cli/main.py` (66%) — uncovered lines are 2-line error handlers (`typer.echo` + `raise SystemExit`) that fire only when Neo4j is down, config file is missing, etc. Triggering them requires the full Docker stack in a broken state; testing them would test Docker failure modes, not application logic.
+**LLM-gated and defensive branches (~4%):**
+- `src/ingestion/guidelines_parser.py` (88%) — the remaining lines are the LLM-assisted PDF extraction path; it only activates when an LLM client is injected, and CI always takes the deterministic transcription by design (see `docs/DECISIONS.md §24`).
+- `src/narrative/narrator.py` (89%) — same pattern: the live-LLM branch is skipped without an API key.
+- `src/graph/queries.py` (82%) — single-node lookup helpers and best-effort retrieval exception branches not on the figure-computation path.
 
-**All financially critical modules are at 93–100%:**
+**All financially critical modules are at 95–100%:**
 
 | Module | Coverage |
 |---|---|
@@ -670,9 +671,10 @@ The uncovered 16% splits into two deliberate categories — not gaps in test dis
 | `src/ingestion/holdings_parser.py` | 100% |
 | `src/compute/config_loader.py` | 98% |
 | `src/graph/builder.py` | 98% |
-| `src/compute/engine.py` | 93% |
+| `src/reconcile/reconciler.py` | 96% |
+| `src/compute/engine.py` | 95% |
 
-The firewall, financial arithmetic, graph construction, and Excel output — the components where a bug would produce an incorrect compliance report — are fully covered.
+The firewall, financial arithmetic, graph construction, reconciliation, and Excel output — the components where a bug would produce an incorrect compliance report — are fully covered.
 
 ### 8.2 mypy (`mypy src/ --ignore-missing-imports`)
 
@@ -686,7 +688,7 @@ Four fixes applied to reach 0 errors:
 | `src/cli/main.py` | 552 | Arg 2 to `breach_action_for_metric`: `str \| None` not `str` | Added `assert metric is not None` (logically guaranteed by the early-exit guard at line 530–532) |
 
 ```text
-Success: no issues found in 27 source files
+Success: no issues found in 28 source files
 ```
 
 ### 8.3 bandit (`bandit -r src/ -ll`)

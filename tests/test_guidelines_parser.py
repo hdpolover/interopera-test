@@ -73,7 +73,9 @@ def test_stub_chunk_ids_are_distinct():
     chunks = parse_guidelines(pdf_path=None, llm_client=None)
     ids = [c.chunk_id for c in chunks]
     assert len(set(ids)) == len(ids), f"Duplicate chunk_ids: {ids}"
-    assert len(ids) == 7
+    # 6 reported-figure rule types + market_risk_metrics + the low-confidence
+    # counterparty_limit chunk (demonstrates the human-verification gate) = 8.
+    assert len(ids) == 8
 
 
 # Fix 5: LLM path with pdf_path provided but extraction returns nothing raises ValueError

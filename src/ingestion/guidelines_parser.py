@@ -38,7 +38,7 @@ _STUB_PASSAGES: list[dict[str, Any]] = [
             "Investment Grade Corporate Bonds 10-50%, High Yield Bonds 0-15%, "
             "Foreign Currency Bonds 0-20%, Structured Credit 0-10%, Cash minimum 5%."
         ),
-        "passage_summary": "Asset class allocation limits for all buckets.",
+        "passage_summary": "Asset class allocation limits for all buckets (Section 2; table begins p.1, continues p.2).",
         "extracted_fields_extra": {
             "limits": {
                 "Singapore Government Securities": {"min": "20%", "max": "60%"},
@@ -47,10 +47,14 @@ _STUB_PASSAGES: list[dict[str, Any]] = [
                 "High Yield Bonds": {"min": "0%", "max": "15%"},
                 "Foreign Currency Bonds": {"min": "0%", "max": "20%"},
                 "Structured Credit": {"min": "0%", "max": "10%"},
-                "Cash": {"min": "5%"},
+                # Cash is a 5–25% band in the source; modelled as a min-floor only because
+                # the cash position (4%) breaches the 5% floor regardless of the 25% cap,
+                # so the cap never binds and the answer key reports cash on the floor alone.
+                "Cash": {"min": "5%", "max": "25%"},
             }
         },
-        "page": 2,
+        # Section 2 and the allocation-limits table begin on page 1 of the PDF.
+        "page": 1,
         "extraction_confidence": 0.95,
     },
     {
@@ -68,9 +72,10 @@ _STUB_PASSAGES: list[dict[str, Any]] = [
         "passage": (
             "The portfolio modified duration shall be maintained between 2.0 years and 6.5 years."
         ),
-        "passage_summary": "Portfolio duration band of 2.0 to 6.5 years.",
+        "passage_summary": "Portfolio duration band of 2.0 to 6.5 years (Section 3.1).",
         "extracted_fields_extra": {"duration_min": "2.0 yrs", "duration_max": "6.5 yrs"},
-        "page": 3,
+        # Section 3.1 Market Risk table is on page 2 of sample_fund_guidelines.pdf.
+        "page": 2,
         "extraction_confidence": 0.97,
     },
     {
@@ -78,9 +83,10 @@ _STUB_PASSAGES: list[dict[str, Any]] = [
         "passage": (
             "The portfolio DV01 shall not exceed SGD 85,000 per basis point."
         ),
-        "passage_summary": "Maximum DV01 of SGD 85,000 / bp.",
+        "passage_summary": "Maximum DV01 of SGD 85,000 / bp (Section 3.1).",
         "extracted_fields_extra": {"dv01_max_sgd": "85000"},
-        "page": 3,
+        # Section 3.1 Market Risk table is on page 2.
+        "page": 2,
         "extraction_confidence": 0.96,
     },
     {
@@ -89,12 +95,13 @@ _STUB_PASSAGES: list[dict[str, Any]] = [
             "No single corporate issuer shall exceed 8% of NAV. "
             "No single GRE issuer or GRE group shall exceed 12% of NAV."
         ),
-        "passage_summary": "Single issuer and GRE concentration limits.",
+        "passage_summary": "Single issuer and GRE concentration limits (Section 3.2).",
         "extracted_fields_extra": {
             "corporate_issuer_cap": "8%",
             "gre_issuer_cap": "12%",
         },
-        "page": 4,
+        # Section 3.2 Credit & Counterparty Risk is on page 2.
+        "page": 2,
         "extraction_confidence": 0.92,
     },
     {
@@ -103,10 +110,30 @@ _STUB_PASSAGES: list[dict[str, Any]] = [
             "The Fund must maintain a minimum of 25% of NAV in liquid assets. "
             "Liquid assets are defined as Singapore Government Securities, MAS Bills, and Cash."
         ),
-        "passage_summary": "Minimum 25% liquidity requirement in government securities and cash.",
+        "passage_summary": "Minimum 25% liquidity requirement in government securities and cash (Section 3.3).",
         "extracted_fields_extra": {"liquid_assets_min": "25%"},
-        "page": 4,
+        # Section 3.3 Liquidity Risk is on page 2.
+        "page": 2,
         "extraction_confidence": 0.93,
+    },
+    {
+        # Low-confidence extraction: the §3.2 single-counterparty cap is a real rule in
+        # the guidelines but is NOT one of the 13 reported figures (no holdings column
+        # supports it). It is extracted at confidence < 0.85 so load_rules marks the
+        # Limit node PENDING_REVIEW — demonstrating the human-verification gate the brief
+        # requires ("an extracted entity the system can't confidently resolve"). Because
+        # no figure's rule_type maps to "counterparty_limit", it never blocks the 13
+        # figures; it simply surfaces in `verify-graph` for a human to approve.
+        "rule_type": "counterparty_limit",
+        "passage": (
+            "Net exposure to any single counterparty for OTC derivatives, governed by the "
+            "ISDA Master Agreement framework, must not exceed 5% of NAV."
+        ),
+        "passage_summary": "Single-counterparty OTC exposure cap of 5% (Section 3.2).",
+        "extracted_fields_extra": {"counterparty_cap": "5%"},
+        # Section 3.2 Credit & Counterparty Risk is on page 2.
+        "page": 2,
+        "extraction_confidence": 0.78,
     },
     {
         "rule_type": "market_risk_metrics",

@@ -184,6 +184,32 @@ def test_write_report_template_metric_rows_present():
         os.unlink(path)
 
 
+def test_write_report_fallback_when_template_missing(monkeypatch, sample_figures):
+    """When report_template.xlsx is absent, write_report generates a workbook from scratch.
+
+    Points _TEMPLATE_NAME at a non-existent file so both candidate paths
+    (CWD and /app) miss, forcing _find_template() to return None and exercising
+    the from-scratch fallback branch. The output must still have the correct
+    headers and contain only figure-sourced values.
+    """
+    import src.report.writer as w
+    monkeypatch.setattr(w, "_TEMPLATE_NAME", "does_not_exist_template.xlsx")
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+        path = f.name
+    try:
+        w.write_report(sample_figures, path)
+        import openpyxl
+        wb = openpyxl.load_workbook(path)
+        ws = wb.active
+        headers = list(next(ws.iter_rows(min_row=1, max_row=1, values_only=True)))
+        assert headers[0] == "Section"
+        assert headers[-1] == "Source (graph path → doc/page)"
+        values = {str(c) for row in ws.iter_rows(values_only=True) for c in row if c}
+        assert "35.0%" in values and "BREACH" in values
+    finally:
+        os.unlink(path)
+
+
 def test_write_report_is_deterministic():
     """Same figures input must produce identical xlsx content."""
     from src.report.writer import write_report
