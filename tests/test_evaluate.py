@@ -482,6 +482,66 @@ def test_e2e_firm_b_firewall(firm_b_e2e_figures):
 
 
 # ---------------------------------------------------------------------------
+# End-to-end: Firm C — all 13 figures must reconcile against yaml expected
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def firm_c_e2e_figures(populated_graph):
+    from src.compute.config_loader import load_config
+    from src.compute.engine import ComputeEngine
+
+    config = load_config(
+        os.path.join(REPO_ROOT, "config", "base.yaml"),
+        os.path.join(REPO_ROOT, "config", "firm_c.yaml"),
+    )
+    engine = ComputeEngine(populated_graph, config)
+    return engine.run_all()
+
+
+def test_e2e_firm_c_reconcile_all_13(firm_c_e2e_figures):
+    """HARD OBLIGATION (constraint-4): All 13 Firm C figures reconcile against yaml expected.
+
+    Firm C: fallen angels excluded (like A), GRE grouped by parent (like B),
+    non_ig = 15.0% (distinct from Firm B's 21.0%).
+
+    If ANY figure fails, this test surfaces the exact mismatch and BLOCKS a pass.
+    Do NOT loosen comparison or edit expected values — a real mismatch is a finding.
+    """
+    from src.reconcile.reconciler import reconcile, parse_expected_yaml
+
+    yaml_path = os.path.join(REPO_ROOT, "config", "firm_c_expected.yaml")
+    expected = parse_expected_yaml(yaml_path)
+    assert len(expected) == 13, f"firm_c_expected.yaml has {len(expected)} figures, expected 13"
+
+    results = reconcile(firm_c_e2e_figures, expected)
+    failed = [r for r in results if not r.passed]
+
+    mismatch_detail = "\n".join(
+        f"  FAIL {r.figure}: computed=({r.computed_value!r}, {r.computed_utilization!r}, {r.computed_status!r})"
+        f" expected=({r.expected_value!r}, {r.expected_utilization!r}, {r.expected_status!r})"
+        f" delta={r.delta!r}"
+        for r in failed
+    )
+    assert not failed, (
+        f"BLOCKED: Firm C — {len(failed)}/13 figures did NOT reconcile:\n{mismatch_detail}"
+    )
+
+    passed_count = len([r for r in results if r.passed])
+    assert passed_count == 13, f"Firm C: only {passed_count}/13 reconciled"
+
+    # Named assertions for Firm C's key distinguishing figure
+    figs_by_id = {f.figure: f for f in firm_c_e2e_figures}
+    assert figs_by_id["aggregate_non_ig_exposure"].value == "15.0%", (
+        f"Firm C aggregate_non_ig_exposure value mismatch: expected '15.0%', "
+        f"got {figs_by_id['aggregate_non_ig_exposure'].value!r}"
+    )
+    assert figs_by_id["aggregate_non_ig_exposure"].status == "OK", (
+        f"Firm C aggregate_non_ig_exposure status mismatch: expected 'OK', "
+        f"got {figs_by_id['aggregate_non_ig_exposure'].status!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # End-to-end: combined summary assertion (prints human-readable summary)
 # ---------------------------------------------------------------------------
 
