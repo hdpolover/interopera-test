@@ -52,6 +52,10 @@ _NUMBER_RE = re.compile(
 #      "Section", "§", "Para", "Art", "Annex", "Exhibit", or "Clause" (with
 #      optional trailing dot/digit e.g. "4.2", "III") are structural
 #      cross-references, not financial figures.
+#
+# Hex/chunk-ID digit prefixes are handled separately: hex tokens are stripped
+# from the narrative text BEFORE numeric extraction in check_firewall(), so
+# those digit prefixes are never seen by the allowlist.  See _HEX_TOKEN_RE.
 # ---------------------------------------------------------------------------
 
 # Allowlist category 1: 4-digit years (1900–2099)
@@ -64,13 +68,25 @@ _ALLOWLIST_SECTION_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Allowlist category 3: digits that are part of a hex/alphanumeric hash token
-# (e.g. chunk IDs like "827726a0", "42b7002a").  The LLM may include such IDs
-# when referencing regulatory basis strings; those digits are identifiers, not
-# financial figures, so they must not trigger a firewall failure.
-# Matches a run of 6+ hex characters (digits + a-f) that contains at least one
-# letter — pure digit strings of that length are caught by normal checks.
-_HEX_TOKEN_RE = re.compile(r"\b[0-9a-f]*[a-f][0-9a-f]*\b", re.IGNORECASE)
+# Hex/chunk-ID token stripper: matches a run of 6+ hex characters (digits + a-f)
+# that contains at least one letter a-f.  These are identifier tokens (e.g.
+# "827726a0", "42b7002a") that the LLM may emit when citing regulatory basis strings.
+# They are stripped from the narrative BEFORE numeric token extraction so that their
+# digit prefix (e.g. "827726") is never presented to the computed-set check.
+#
+# Threshold rationale — minimum length 6:
+#   • Genuine financial figures never contain hex letters (a-f), so stripping
+#     hex-with-letter tokens cannot accidentally remove a real number.
+#   • Short hex-looking sequences of 1-5 chars (e.g. "a", "3b") are more likely
+#     to be prose words or single-letter abbreviations; requiring 6+ chars avoids
+#     inadvertently stripping those.
+#   • Real chunk IDs observed in practice (e.g. "827726a0", "42b7002a") are 8+
+#     chars, well above this threshold.
+#
+# Security: hex tokens are stripped, not allowlisted by digit-prefix matching.
+# This prevents a narrative from smuggling a fabricated number (e.g. "9999") by
+# emitting an adjacent hex token that shares its digits (e.g. "9999a1").
+_HEX_TOKEN_RE = re.compile(r"\b(?=[0-9a-f]{6,}\b)[0-9a-f]*[a-f][0-9a-f]*\b", re.IGNORECASE)
 
 
 def _is_allowlisted(token: str, original_text: str) -> bool:
@@ -78,8 +94,15 @@ def _is_allowlisted(token: str, original_text: str) -> bool:
 
     Args:
         token:         The raw numeric token extracted from the narrative.
-        original_text: The full narrative text, used to check positional context
-                       (e.g. whether the token follows a structural keyword).
+        original_text: The hex-stripped narrative text, used to check positional
+                       context (e.g. whether the token follows a structural keyword).
+
+    Categories checked:
+        1. Four-digit years (1900–2099).
+        2. Structural section / cross-reference numbers (Section 4.2, §3.1, etc.).
+
+    Hex/chunk-ID digit prefixes are handled upstream by stripping hex tokens from
+    the narrative before this function is ever called — see check_firewall().
     """
     # Category 1: 4-digit year (bare, no % suffix)
     if _ALLOWLIST_YEAR_RE.match(token):
@@ -89,14 +112,6 @@ def _is_allowlisted(token: str, original_text: str) -> bool:
     # number portion of a keyword+number phrase anywhere in the text.
     for m in _ALLOWLIST_SECTION_RE.finditer(original_text):
         if m.group(1) == token:
-            return True
-
-    # Category 3: token is a digit-prefix of a hex/alphanumeric hash string.
-    # E.g. "827726" extracted from "827726a0" — the parent token is an ID, not
-    # a financial figure, so it is exempt from the firewall check.
-    bare = token.rstrip("%")
-    for m in _HEX_TOKEN_RE.finditer(original_text):
-        if m.group().startswith(bare) and len(m.group()) > len(bare):
             return True
 
     return False
@@ -214,16 +229,32 @@ def check_firewall(narrative: str, figures: list[Figure]) -> FirewallResult:
 
     Allowlisted tokens (4-digit years, section cross-references) are excluded
     from the check via _is_allowlisted() — see the documented allowlist above.
+
+    Security note — hex pre-stripping:
+        Before extracting numeric tokens, all hex/chunk-ID tokens (runs of 6+
+        hex characters containing at least one letter a-f, matched by
+        _HEX_TOKEN_RE) are replaced with a space in the text used for token
+        extraction.  This prevents an LLM from smuggling a fabricated number
+        (e.g. "9999") by appending a hex suffix (e.g. "9999a1b2") to trick the
+        old prefix-allowlist into exempting it.  Genuine financial figures never
+        contain hex letters, so stripping hex tokens cannot silently drop a
+        real number.
     """
     computed_set = _build_computed_set(figures)
-    raw_tokens = extract_numeric_tokens(narrative)
+
+    # Strip hex/chunk-ID tokens before extracting numeric tokens so that digit
+    # prefixes of identifiers (e.g. "827726" from "827726a0") are never seen by
+    # the computed-set check.
+    stripped_narrative = _HEX_TOKEN_RE.sub(" ", narrative)
+    raw_tokens = extract_numeric_tokens(stripped_narrative)
 
     offending: list[str] = []
     checked: list[str] = []
 
     for raw in raw_tokens:
-        # Skip tokens covered by the documented allowlist
-        if _is_allowlisted(raw, narrative):
+        # Skip tokens covered by the documented allowlist (years, section refs).
+        # Pass stripped_narrative so section-ref context is still intact.
+        if _is_allowlisted(raw, stripped_narrative):
             continue
 
         checked.append(raw)

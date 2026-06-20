@@ -170,3 +170,48 @@ def test_firewall_no_llm_imports():
             )
             for name in names:
                 assert name.split(".")[0] not in forbidden
+
+
+def test_firewall_hex_suffix_bypass_is_blocked(firm_a_figures):
+    """Security regression: fabricated number adjacent to a hex suffix must NOT be allowlisted.
+
+    An attacker (or hallucinating LLM) could emit '9999' (not in figures) alongside
+    a hex-looking token '9999a1b2' to exploit the old prefix-allowlist in category 3.
+    The fixed firewall strips hex tokens BEFORE extracting numeric tokens, so '9999'
+    is still present in the stripped text and must be flagged as offending.
+    """
+    from src.firewall.checker import check_firewall
+    # 9999 is NOT in firm_a_figures; '9999a1b2' is a hex token whose digit prefix
+    # was previously used to smuggle the fabricated value through the firewall.
+    narrative = "Exposure is 9999% (basis 9999a1b2)."
+    result = check_firewall(narrative, firm_a_figures)
+    assert result.passed is False, (
+        "Firewall must FAIL: '9999' is fabricated and must not be allowlisted via "
+        "its hex suffix '9999a1b2'."
+    )
+    assert any("9999" in t for t in result.offending_numbers), (
+        f"Expected '9999%' or '9999' in offending_numbers; got {result.offending_numbers}"
+    )
+
+
+def test_firewall_real_chunk_id_no_false_positive(firm_a_figures):
+    """No false positive: a genuine chunk ID like '827726a0' must not cause a firewall failure.
+
+    The digit prefix '827726' extracted from the chunk ID is NOT a financial figure,
+    so it must be ignored.  The fix strips hex tokens from the narrative before
+    numeric extraction, so '827726' never appears in the token list at all.
+    """
+    from src.firewall.checker import check_firewall
+    # All numeric tokens in this narrative are either in firm_a_figures or covered
+    # by other allowlists (years).  '827726a0' is a hex chunk ID — its digit prefix
+    # '827726' must NOT be checked against the computed set (which doesn't contain it).
+    narrative = (
+        "The portfolio allocates 35.0% to SGS per chunk 827726a0. "
+        "Cash is 4.0%, below the minimum 5% floor. "
+        "Liquid assets ratio utilization is 188.0% (established 2020)."
+    )
+    result = check_firewall(narrative, firm_a_figures)
+    assert result.passed is True, (
+        f"Firewall must PASS: '827726' is a chunk-ID digit prefix, not a fabricated figure. "
+        f"offending_numbers={result.offending_numbers}"
+    )
