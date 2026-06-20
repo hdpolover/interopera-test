@@ -233,7 +233,7 @@ To onboard a new firm:
 
 1. Create `config/firm_{x}.yaml` (three knobs only, as shown above).
 2. Supply the answer key in XLSX or YAML format.
-3. Run: `python -m src.cli.main run --firm X`
+3. Run: `bin/fundra run --firm X` (or `python -m src.cli.main run --firm X`)
 
 No code changes required. The `config_loader.py` hashes the resolved effective config. The hash is stored in every audit event (`config_hash`) so the exact config version used for a run is permanently recorded.
 

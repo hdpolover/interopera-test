@@ -121,13 +121,13 @@ config/firm_b.yaml ────┘                                              
 | `ingest` | Parse holdings CSV and guidelines PDF; print counts |
 | `build-graph` | Load positions and rule chunks into Neo4j; emit `graph_construction` audit event |
 | `verify-graph` | List PENDING_REVIEW nodes; optionally approve them with `--approve-all` or `--approve <id>` |
-| `run --firm <A\|B>` | Compute all 13 compliance figures; write `figures_{firm}.json` and `.xlsx` report; emit full audit trail |
-| `reconcile --firm <A\|B>` | Compare computed figures to firm answer key; exit 1 on mismatch |
-| `evaluate --firm <A\|B>` | Full Phase 5 gate: reconcile + traceability check + firewall check |
-| `narrate --firm <A\|B>` | Generate LLM (or stub) narrative and run hallucination firewall |
-| `verify-determinism --firm <A\|B>` | Run compute engine twice; assert byte-identical `figures.json` output |
-| `replay --figure <name> --firm <A\|B>` | Show graph path, source passage, delta vs answer key, and config rules for one figure |
-| `generate-dsl --firm <A\|B>` | Print current firm config as a commented DSL to stdout |
+| `run --firm <A\|B\|C>` | Compute all 13 compliance figures; write `figures_{firm}.json` and `.xlsx` report; emit full audit trail |
+| `reconcile --firm <A\|B\|C>` | Compare computed figures to firm answer key; exit 1 on mismatch |
+| `evaluate --firm <A\|B\|C>` | Full Phase 5 gate: reconcile + traceability check + firewall check |
+| `narrate --firm <A\|B\|C>` | Generate LLM (or stub) narrative and run hallucination firewall; live spinners for compute / generate / firewall stages |
+| `verify-determinism --firm <A\|B\|C>` | Run compute engine twice; assert byte-identical `figures.json` output |
+| `replay --figure <name> --firm <A\|B\|C>` | Show graph path, source passage, delta vs answer key, and config rules for one figure |
+| `generate-dsl --firm <A\|B\|C>` | Print current firm config as a commented DSL to stdout |
 | `preview-config --dsl <file>` | Parse DSL, validate, run compute engine, display vs Firm A baseline |
 | `query-metric --metric <name> \| --all` | Multi-hop query: RiskMetric → BreachAction → Owner for one or all 6 metrics |
 | `show-audit-log [--last N] [--verify]` | Display audit log events; optionally verify SHA-256 hash chain integrity |
@@ -368,18 +368,28 @@ The `show-audit-log` command makes the append-only audit log with hash chain vis
 ┏━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
 ┃ #  ┃ Event Type      ┃ Actor ┃ Timestamp                   ┃ Hash (first 12) ┃
 ┡━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━┩
-│ 1  │ figure_computed │ cli   │ 2026-06-19 14:46:37.128+00  │ 6b221059f170    │
-│ 2  │ figure_computed │ cli   │ 2026-06-19 14:46:37.128+00  │ 90108b150fa2    │
-│ 3  │ figure_computed │ cli   │ 2026-06-19 14:46:37.128+00  │ 47daf4b7228c    │
-│ 4  │ figure_computed │ cli   │ 2026-06-19 14:46:37.129+00  │ 6e83e8bef8dc    │
-│ 5  │ figure_computed │ cli   │ 2026-06-19 14:46:37.129+00  │ 2c6e748592eb    │
-│ 6  │ figure_computed │ cli   │ 2026-06-19 14:46:37.130+00  │ de4277463695    │
-│ 7  │ figure_computed │ cli   │ 2026-06-19 14:46:37.130+00  │ 8101499c5b07    │
-│ 8  │ figure_computed │ cli   │ 2026-06-19 14:46:37.130+00  │ 6623060a316c    │
-│ 9  │ figure_computed │ cli   │ 2026-06-19 14:46:37.131+00  │ 47bfc30c0f0c    │
-│ 10 │ report_exported │ cli   │ 2026-06-19 14:46:37.214+00  │ b38fd1439fe9    │
+│ 1  │ figure_computed │ cli   │ 2026-06-20                  │ d7a077929ea0    │
+│    │                 │       │ 08:59:09.514053+00:00       │                 │
+│ 2  │ figure_computed │ cli   │ 2026-06-20                  │ 8849dbca0f2b    │
+│    │                 │       │ 08:59:09.514392+00:00       │                 │
+│ 3  │ figure_computed │ cli   │ 2026-06-20                  │ 7b6e36b8bab8    │
+│    │                 │       │ 08:59:09.514612+00:00       │                 │
+│ 4  │ figure_computed │ cli   │ 2026-06-20                  │ f4cac8b33a71    │
+│    │                 │       │ 08:59:09.514827+00:00       │                 │
+│ 5  │ figure_computed │ cli   │ 2026-06-20                  │ 51124a0653b5    │
+│    │                 │       │ 08:59:09.515060+00:00       │                 │
+│ 6  │ figure_computed │ cli   │ 2026-06-20                  │ e61b4771485d    │
+│    │                 │       │ 08:59:09.515275+00:00       │                 │
+│ 7  │ figure_computed │ cli   │ 2026-06-20                  │ c0f3c2a46e5d    │
+│    │                 │       │ 08:59:09.515533+00:00       │                 │
+│ 8  │ figure_computed │ cli   │ 2026-06-20                  │ 927d28cf554d    │
+│    │                 │       │ 08:59:09.515741+00:00       │                 │
+│ 9  │ figure_computed │ cli   │ 2026-06-20                  │ f19f29a22f93    │
+│    │                 │       │ 08:59:09.515945+00:00       │                 │
+│ 10 │ report_exported │ cli   │ 2026-06-20                  │ bd6d15ef21b3    │
+│    │                 │       │ 08:59:09.580188+00:00       │                 │
 └────┴─────────────────┴───────┴─────────────────────────────┴─────────────────┘
-Chain integrity: VALID (33 events verified)
+Chain integrity: VALID (15 events verified)
 ```
 
 The `verify_chain()` method re-derives all SHA-256 hashes in insertion order (`id ASC`) and confirms each row's stored hash matches the recomputed hash. `list_events(limit)` was added to `AuditLogger` in `src/audit/log.py` to support this display.
