@@ -203,26 +203,42 @@ def diagram_flow():
 # ── DIAGRAM 2: LLM Containment Gates ──────────────────────────────────────────
 
 def diagram_layers():
-    fig, ax = plt.subplots(figsize=(13, 9))
+    # Fixed layout — explicit y positions, no computed offsets that can collide.
+    # Canvas: 0..13 wide, 0..10 tall.
+    fig, ax = plt.subplots(figsize=(13, 10))
     fig.patch.set_facecolor(BG)
     ax.set_facecolor(BG)
     ax.set_xlim(0, 13)
-    ax.set_ylim(0.4, 9.4)
+    ax.set_ylim(0, 10)
     ax.axis('off')
 
-    # Title
-    ax.text(6.5, 9.1, 'LLM Containment — Six Structural Gates', ha='center',
-            color=SLATE, fontsize=14, fontweight='bold')
-    ax.text(6.5, 8.72, 'InterOpera Compliance Reporting System', ha='center',
-            color=SUBTEXT, fontsize=10)
-    ax.axhline(8.45, color=DIVIDER, linewidth=0.8)
+    TABLE_X   = 0.3
+    TABLE_W   = 12.4
+    COL_WHERE = 7.9   # x where right column starts
 
-    # Column headers
-    ax.text(0.55, 8.3, '#', ha='center', color=GRAY, fontsize=8, fontweight='bold')
-    ax.text(1.05, 8.3, 'Gate', ha='left', color=GRAY, fontsize=8, fontweight='bold')
-    ax.text(8.2, 8.3, 'Where enforced', ha='left', color=GRAY, fontsize=8, fontweight='bold')
-    ax.axhline(8.1, color=DIVIDER, linewidth=0.5)
+    # ── Title ──────────────────────────────────────────────────────────────────
+    ax.text(6.5, 9.65, 'LLM Containment — Six Structural Gates',
+            ha='center', color=SLATE, fontsize=14, fontweight='bold')
+    ax.text(6.5, 9.28, 'InterOpera Compliance Reporting System',
+            ha='center', color=SUBTEXT, fontsize=10)
 
+    # ── Column header band ─────────────────────────────────────────────────────
+    HDR_BOT, HDR_TOP = 8.75, 9.05
+    hdr = FancyBboxPatch(
+        (TABLE_X, HDR_BOT), TABLE_W, HDR_TOP - HDR_BOT,
+        boxstyle='round,pad=0.02',
+        facecolor='#e2e8f0', edgecolor='none', linewidth=0, zorder=1,
+    )
+    ax.add_patch(hdr)
+    hdr_cy = (HDR_BOT + HDR_TOP) / 2
+    ax.text(0.65, hdr_cy, '#',
+            ha='center', va='center', color=GRAY, fontsize=8, fontweight='bold')
+    ax.text(1.1, hdr_cy, 'Gate',
+            ha='left', va='center', color=GRAY, fontsize=8, fontweight='bold')
+    ax.text(COL_WHERE + 0.15, hdr_cy, 'Where enforced',
+            ha='left', va='center', color=GRAY, fontsize=8, fontweight='bold')
+
+    # ── Data rows — fixed bottom y for each ────────────────────────────────────
     gates = [
         ('Static Import Gate',
          'No `import anthropic` in src/compute/',
@@ -244,55 +260,53 @@ def diagram_layers():
          'src/firewall/checker.py — _NUMBER_RE + symmetric norm'),
     ]
 
-    n = len(gates)
-    y_start = 7.9
-    row_h = 1.05
+    ROW_H   = 1.05   # each row height
+    GAP     = 0.05   # gap between rows
+    PITCH   = ROW_H + GAP
+    # First row bottom = just below header
+    first_bot = HDR_BOT - GAP - ROW_H
 
     for i, (name, desc, where) in enumerate(gates):
-        cy = y_start - i * row_h
-        y_top = cy + row_h / 2 - 0.04
-        y_bot = cy - row_h / 2 + 0.04
+        bot = first_bot - i * PITCH
+        top = bot + ROW_H
+        cy  = (bot + top) / 2
 
-        # Row background — alternating subtle shade
-        row_fc = '#f0f4ff' if i % 2 == 0 else BG
+        row_fc = '#f0f4ff' if i % 2 == 0 else '#fafafa'
         row_patch = FancyBboxPatch(
-            (0.3, y_bot), 12.4, row_h - 0.08,
+            (TABLE_X, bot), TABLE_W, ROW_H,
             boxstyle='round,pad=0.02',
-            facecolor=row_fc, edgecolor=DIVIDER, linewidth=0.6, zorder=1,
+            facecolor=row_fc, edgecolor='none', linewidth=0, zorder=1,
         )
         ax.add_patch(row_patch)
 
         # Number badge
-        circ = plt.Circle((0.62, cy), 0.24, color=BLUE, zorder=3)
+        circ = plt.Circle((0.65, cy), 0.25, color=BLUE, zorder=3)
         ax.add_patch(circ)
-        ax.text(0.62, cy, str(i + 1), ha='center', va='center',
+        ax.text(0.65, cy, str(i + 1), ha='center', va='center',
                 color='white', fontsize=10, fontweight='bold', zorder=4)
 
-        # Gate name
-        ax.text(1.1, cy + 0.17, name, ha='left', va='center',
-                color=TEXT, fontsize=9.5, fontweight='bold', zorder=2)
+        # Gate name (upper half) + description (lower half)
+        ax.text(1.1, cy + 0.17, name,
+                ha='left', va='center', color=TEXT,
+                fontsize=9.5, fontweight='bold', zorder=2)
+        ax.text(1.1, cy - 0.15, desc,
+                ha='left', va='center', color=SUBTEXT, fontsize=8, zorder=2)
 
-        # Description
-        ax.text(1.1, cy - 0.12, desc, ha='left', va='center',
-                color=SUBTEXT, fontsize=8, zorder=2)
-
-        # Where enforced — right column, muted box
-        where_patch = FancyBboxPatch(
-            (8.1, cy - 0.28), 4.5, 0.56,
+        # "Where enforced" pill in right column
+        pill = FancyBboxPatch(
+            (COL_WHERE, cy - 0.25), TABLE_X + TABLE_W - COL_WHERE - 0.1, 0.50,
             boxstyle='round,pad=0.04',
-            facecolor='white', edgecolor=DIVIDER, linewidth=0.8, zorder=2,
+            facecolor='white', edgecolor='#cbd5e1', linewidth=0.7, zorder=2,
         )
-        ax.add_patch(where_patch)
-        ax.text(8.2, cy, where, ha='left', va='center',
-                color=SUBTEXT, fontsize=7.5, style='italic', zorder=3)
+        ax.add_patch(pill)
+        ax.text(COL_WHERE + 0.15, cy, where,
+                ha='left', va='center', color=SUBTEXT,
+                fontsize=7.5, style='italic', zorder=3)
 
-    # Vertical separator between description and where-enforced columns
-    ax.axvline(8.0, ymin=0.1, ymax=0.93, color=DIVIDER, linewidth=0.6, linestyle=':')
-
-    # Footer
-    ax.text(6.5, 0.7, 'All six gates verified by automated tests in tests/test_llm_containment.py',
+    # ── Footer ─────────────────────────────────────────────────────────────────
+    ax.text(6.5, 0.3,
+            'All six gates verified by automated tests in tests/test_llm_containment.py',
             ha='center', color=GRAY, fontsize=8.5, style='italic')
-    ax.axhline(0.88, color=DIVIDER, linewidth=0.5)
 
     plt.tight_layout(pad=0.5)
     out = f'{OUT_DIR}/architecture_layers.png'
