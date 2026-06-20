@@ -96,8 +96,8 @@ def ingest(
 
 @app.command(name="build-graph")
 def build_graph(
-    holdings: str = typer.Option(str(SAMPLE_DOCS / "sample_holdings.csv")),
-    guidelines: Optional[str] = typer.Option(None),
+    holdings: str = typer.Option(str(SAMPLE_DOCS / "sample_holdings.csv"), help="Holdings CSV path"),
+    guidelines: Optional[str] = typer.Option(None, help="Guidelines PDF path (default: sample_docs/sample_fund_guidelines.pdf)"),
 ) -> None:
     """Build Neo4j knowledge graph from holdings and guidelines."""
     from src.graph.schema import apply_schema
@@ -127,9 +127,9 @@ def build_graph(
 
 @app.command(name="verify-graph")
 def verify_graph(
-    approve_all: bool = typer.Option(False, "--approve-all"),
-    approve: Optional[str] = typer.Option(None, "--approve"),
-    actor: str = typer.Option("cli_user", help="Actor name for approval"),
+    approve_all: bool = typer.Option(False, "--approve-all", help="Approve all PENDING_REVIEW nodes"),
+    approve: Optional[str] = typer.Option(None, "--approve", help="Approve a single node by ID"),
+    actor: str = typer.Option("cli_user", help="Actor name recorded in audit log"),
 ) -> None:
     """List PENDING_REVIEW nodes and optionally approve them."""
     from src.graph.queries import list_pending_nodes, approve_node
@@ -167,8 +167,8 @@ def verify_graph(
 
 @app.command(name="run")
 def run_cmd(
-    firm: str = typer.Option(..., help="Firm ID: A or B"),
-    output_json: bool = typer.Option(False, "--json"),
+    firm: str = typer.Option(..., help="Firm ID: A, B, or C"),
+    output_json: bool = typer.Option(False, "--json", help="Print results as JSON to stdout"),
 ) -> None:
     """Compute all 13 compliance figures and write report."""
     from src.compute.config_loader import load_config, effective_config_hash
@@ -244,8 +244,8 @@ def run_cmd(
 
 @app.command()
 def reconcile(
-    firm: str = typer.Option(..., help="Firm ID: A or B"),
-    output_json: bool = typer.Option(False, "--json"),
+    firm: str = typer.Option(..., help="Firm ID: A, B, or C"),
+    output_json: bool = typer.Option(False, "--json", help="Print results as JSON to stdout"),
 ) -> None:
     """Reconcile computed figures against firm answer key."""
     from src.compute.config_loader import load_config
@@ -303,8 +303,8 @@ def reconcile(
 
 @app.command()
 def evaluate(
-    firm: str = typer.Option(..., help="Firm ID: A or B"),
-    output_json: bool = typer.Option(False, "--json"),
+    firm: str = typer.Option(..., help="Firm ID: A, B, or C"),
+    output_json: bool = typer.Option(False, "--json", help="Print results as JSON to stdout"),
 ) -> None:
     """Full Phase 5: reconcile + traceability + firewall + determinism."""
     from src.compute.config_loader import load_config
@@ -409,7 +409,7 @@ def evaluate(
 
 @app.command(name="verify-determinism")
 def verify_determinism(
-    firm: str = typer.Option(..., help="Firm ID: A or B"),
+    firm: str = typer.Option(..., help="Firm ID: A, B, or C"),
 ) -> None:
     """Run engine twice and assert byte-identical figures.json output."""
     import difflib
@@ -451,7 +451,7 @@ def verify_determinism(
 
 @app.command()
 def narrate(
-    firm: str = typer.Option(..., help="Firm ID: A or B"),
+    firm: str = typer.Option(..., help="Firm ID: A, B, or C"),
 ) -> None:
     """Generate narrative and run firewall check."""
     from src.compute.config_loader import load_config
@@ -483,7 +483,7 @@ def narrate(
 @app.command()
 def replay(
     figure: str = typer.Option(..., help="Figure name, e.g. allocation_sgs"),
-    firm: str = typer.Option(..., help="Firm ID: A or B"),
+    firm: str = typer.Option(..., help="Firm ID: A, B, or C"),
 ) -> None:
     """Replay a figure: show graph path, citation, delta vs answer key, and config rule."""
     firm_id = f"firm_{firm.lower()}"
@@ -608,7 +608,7 @@ def show_audit_log(
 
 @app.command(name="generate-dsl")
 def generate_dsl(
-    firm: str = typer.Option(..., help="Firm ID: A or B"),
+    firm: str = typer.Option(..., help="Firm ID: A, B, or C"),
 ) -> None:
     """Write the current firm config as a DSL file to stdout with comments."""
     import yaml as _yaml
