@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
-@dataclass
+@dataclass(frozen=True)
 class Figure:
     figure: str
     value: str
@@ -15,7 +15,7 @@ class Figure:
     citation: dict
 
 
-@dataclass
+@dataclass(frozen=True)
 class FigureSpec:
     id: str
     selector: str
@@ -28,7 +28,7 @@ class FigureSpec:
     utilization_basis: str = "none"
 
 
-FIGURE_REGISTRY: list[FigureSpec] = [
+FIGURE_REGISTRY: tuple[FigureSpec, ...] = (
     FigureSpec(
         id="allocation_sgs",
         selector="positions_in_asset_class",
@@ -174,4 +174,4 @@ FIGURE_REGISTRY: list[FigureSpec] = [
         limit_display="max SGD 85,000 / bp",
         utilization_basis="cap",
     ),
-]
+)

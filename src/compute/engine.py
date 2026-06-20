@@ -6,7 +6,7 @@ NO LLM client. Constructor accepts only (driver, config: FirmConfig).
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from src.compute.config_loader import FirmConfig
 from src.compute.primitives import (
@@ -16,35 +16,45 @@ from src.compute.primitives import (
 )
 from src.compute.registry import FIGURE_REGISTRY, Figure, FigureSpec
 from src.graph import queries
+from src.graph.constants import ASSET_CLASS_SLUG as _ASSET_CLASS_SLUG
 
-# Maps AssetClass display name → slug, mirrors builder._ASSET_CLASS_SLUG.
-# Used in _build_graph_path to fall back when a.slug is unavailable.
-_ASSET_CLASS_SLUG: dict[str, str] = {
-    "Singapore Government Securities": "sgs",
-    "MAS Bills": "mas_bills",
-    "Investment Grade Corporate Bonds": "ig_corp",
-    "High Yield Bonds": "high_yield",
-    "Foreign Currency Bonds": "fx_bonds",
-    "Structured Credit": "structured_credit",
-    "Cash & Cash Equivalents": "cash",
-}
+def _build_limit_bounds(limits: dict[str, Any]) -> dict[str, dict[str, Decimal]]:
+    """Normalize config.limits dict to engine-internal {figure_id: {min/max/cap/floor: Decimal}}.
 
-# Limit bounds by figure id (fractions for pct figures, raw for others)
-_LIMIT_BOUNDS: dict[str, dict[str, Any]] = {
-    "allocation_sgs":                    {"min": Decimal("0.20"), "max": Decimal("0.60")},
-    "allocation_mas_bills":              {"min": Decimal("0.00"), "max": Decimal("0.40")},
-    "allocation_ig_corp":                {"min": Decimal("0.10"), "max": Decimal("0.50")},
-    "allocation_high_yield":             {"min": Decimal("0.00"), "max": Decimal("0.15")},
-    "allocation_fx_bonds":               {"min": Decimal("0.00"), "max": Decimal("0.20")},
-    "allocation_structured_credit":      {"min": Decimal("0.00"), "max": Decimal("0.10")},
-    "allocation_cash":                   {"floor": Decimal("0.05")},
-    "aggregate_non_ig_exposure":         {"cap": Decimal("0.20")},
-    "largest_single_corporate_issuer":   {"cap": Decimal("0.08")},
-    "largest_gre_issuer":                {"cap": Decimal("0.12")},
-    "liquid_assets_ratio":               {"floor": Decimal("0.25")},
-    "portfolio_duration":                {"min": Decimal("2.0"), "max": Decimal("6.5")},
-    "portfolio_dv01":                    {"cap": Decimal("85000")},
-}
+    Config shape → engine key mapping:
+      min_pct / min_years  → "min"
+      max_pct / max_years  → "max"
+      max_sgd              → "cap"
+    When only min_pct is present (no max_pct), the figure uses a floor comparator → "floor".
+    When only max_pct is present (no min_pct), the figure uses a cap comparator → "cap".
+    """
+    required_figure_ids = {
+        "allocation_sgs", "allocation_mas_bills", "allocation_ig_corp",
+        "allocation_high_yield", "allocation_fx_bonds", "allocation_structured_credit",
+        "allocation_cash", "aggregate_non_ig_exposure", "largest_single_corporate_issuer",
+        "largest_gre_issuer", "liquid_assets_ratio", "portfolio_duration", "portfolio_dv01",
+    }
+    missing = required_figure_ids - set(limits.keys())
+    if missing:
+        raise ValueError(f"config.limits missing required figure keys: {sorted(missing)}")
+
+    result: dict[str, dict[str, Decimal]] = {}
+    for fig_id, raw in limits.items():
+        bounds: dict[str, Decimal] = {}
+        if "min_pct" in raw and "max_pct" in raw:
+            bounds["min"] = Decimal(str(raw["min_pct"]))
+            bounds["max"] = Decimal(str(raw["max_pct"]))
+        elif "min_years" in raw and "max_years" in raw:
+            bounds["min"] = Decimal(str(raw["min_years"]))
+            bounds["max"] = Decimal(str(raw["max_years"]))
+        elif "min_pct" in raw:
+            bounds["floor"] = Decimal(str(raw["min_pct"]))
+        elif "max_pct" in raw:
+            bounds["cap"] = Decimal(str(raw["max_pct"]))
+        elif "max_sgd" in raw:
+            bounds["cap"] = Decimal(str(raw["max_sgd"]))
+        result[fig_id] = bounds
+    return result
 
 # Maps each figure id to the actual rule_type stored on SourceChunk nodes.
 # These must match the rule_type values produced by guidelines_parser.py's _STUB_PASSAGES.
@@ -72,6 +82,7 @@ class ComputeEngine:
         self._driver = driver
         self._config = config
         self._nav: Decimal | None = None
+        self._limit_bounds: dict[str, dict[str, Decimal]] = _build_limit_bounds(config.limits)
 
     def _get_nav(self) -> Decimal:
         """Compute NAV once per run."""
@@ -127,8 +138,11 @@ class ComputeEngine:
 
     def _compute_group_value(
         self, spec: FigureSpec, nav_value: Decimal
-    ) -> tuple[Decimal, str, str, list[str]]:
-        """Compute grouped figure (max_group_pct). Returns (value, group_name, group_key, member_ids)."""
+    ) -> tuple[Decimal | None, str, str, list[str]]:
+        """Compute grouped figure (max_group_pct). Returns (value, group_name, group_key, member_ids).
+
+        Returns None as value when no groups exist, signalling an ERROR figure to the caller.
+        """
         pred = dict(spec.predicate)
         # Resolve group_key from config if needed
         if "group_key_config_key" in pred:
@@ -149,16 +163,17 @@ class ComputeEngine:
             all_groups = filtered
 
         if not all_groups:
-            return Decimal("0"), "", group_key, []
+            # Return sentinel None to signal "no groups found" — caller routes to ERROR figure.
+            return None, "", group_key, []
 
         gname, gpct = max_group_pct(all_groups, nav_value)
-        member_ids = [p["instrument_id"] for p in all_groups[gname]]
+        member_ids = [p.get("instrument_id", "UNKNOWN") for p in all_groups[gname]]
         return gpct, gname, group_key, member_ids
 
     def _apply_comparator(self, spec: FigureSpec, value: Decimal) -> str:
         """Apply comparator to produce OK/BREACH/AT LIMIT."""
         comp = spec.comparator
-        bounds = _LIMIT_BOUNDS.get(spec.id, {})
+        bounds = self._limit_bounds.get(spec.id, {})
 
         if comp == "within_min_max":
             return within_min_max(value, bounds["min"], bounds["max"])
@@ -182,7 +197,7 @@ class ComputeEngine:
     def _compute_utilization(self, spec: FigureSpec, value: Decimal) -> str:
         """Compute utilization string based on utilization_basis and config format."""
         basis = spec.utilization_basis
-        bounds = _LIMIT_BOUNDS.get(spec.id, {})
+        bounds = self._limit_bounds.get(spec.id, {})
         util_fmt = self._config.output.utilization_format
 
         if basis == "none":
@@ -198,7 +213,7 @@ class ComputeEngine:
         else:
             return "n/a"
 
-        if denom is None or denom == 0:
+        if denom is None or denom == Decimal("0"):
             return "n/a"
 
         raw_util = value / denom
@@ -208,6 +223,50 @@ class ComputeEngine:
         else:
             return percent_1dp(raw_util)
 
+    def _fetch_non_ig_ac_names(self) -> list[str]:
+        """Query Neo4j for asset-class slugs that CONTRIBUTES_TO the non_ig aggregate.
+
+        Returns slugs in alphabetical order (ORDER BY a.slug). Extracted from
+        _build_graph_path so the graph builder is pure and Neo4j I/O is explicit
+        at the call site in compute_figure.
+        """
+        with self._driver.session() as session:
+            result = session.run(
+                """
+                MATCH (a:AssetClass)-[:CONTRIBUTES_TO]->(agg:Aggregate {name: 'non_ig'})
+                RETURN a.slug AS name ORDER BY a.slug
+                """
+            )
+            return [r["name"] for r in result]
+
+    def _build_non_ig_path(
+        self,
+        positions: list[dict],
+        ac_names: list[str],
+    ) -> str:
+        """Build the graph path string for the positions_matching (non-IG) selector.
+
+        ac_names must be pre-fetched by the caller (no I/O here).
+        """
+        if ac_names:
+            path = f"(AssetClass:{ac_names[0]})-[:CONTRIBUTES_TO]->(Aggregate:non_ig)"
+            for nm in ac_names[1:]:
+                path += f"<-[:CONTRIBUTES_TO]-(AssetClass:{nm})"
+        else:
+            path = "(Aggregate:non_ig)"
+        if self._config.non_ig.include_fallen_angels:
+            fallen = [
+                p.get("instrument_id", "UNKNOWN")
+                for p in positions
+                if p.get("asset_class") == "Investment Grade Corporate Bonds"
+            ]
+            if fallen:
+                path += (
+                    f", (Position:{', '.join(fallen)})"
+                    f"-[:RATED_BELOW_IG]->(Aggregate:non_ig)"
+                )
+        return path
+
     def _build_graph_path(
         self,
         spec: FigureSpec,
@@ -215,67 +274,37 @@ class ComputeEngine:
         group_name: str = "",
         group_key: str = "",
         member_ids: list[str] | None = None,
+        non_ig_ac_names: list[str] | None = None,
     ) -> str:
-        """Build a human-readable graph path from the actual traversal result."""
+        """Build a human-readable graph path from the actual traversal result.
+
+        Pure function: all graph data must be passed in as parameters.
+        No live I/O is performed here — callers fetch data before calling.
+        """
         sel = spec.selector
         if sel == "positions_in_asset_class":
             ac_display = spec.predicate.get("asset_class", "?")
             ac = _ASSET_CLASS_SLUG.get(ac_display, ac_display)
-            ids = [p["instrument_id"] for p in positions]
+            ids = [p.get("instrument_id", "UNKNOWN") for p in positions]
             return f"(Position:{', '.join(ids)})-[:IN_ASSET_CLASS]->(AssetClass:{ac})"
         if sel == "positions_matching":
-            # Serialize the ACTUAL matched CONTRIBUTES_TO traversal feeding the aggregate.
-            # Query a.slug so paths use slug identifiers (e.g. high_yield, structured_credit).
-            # ORDER BY a.slug produces alphabetical slug order: high_yield before structured_credit,
-            # matching the brief's worked example for Firm A exactly.
-            with self._driver.session() as session:
-                result = session.run(
-                    """
-                    MATCH (a:AssetClass)-[:CONTRIBUTES_TO]->(agg:Aggregate {name: 'non_ig'})
-                    RETURN a.slug AS name ORDER BY a.slug
-                    """
-                )
-                ac_names = [r["name"] for r in result]
-            if ac_names:
-                path = f"(AssetClass:{ac_names[0]})-[:CONTRIBUTES_TO]->(Aggregate:non_ig)"
-                for nm in ac_names[1:]:
-                    path += f"<-[:CONTRIBUTES_TO]-(AssetClass:{nm})"
-            else:
-                path = "(Aggregate:non_ig)"
-            if self._config.non_ig.include_fallen_angels:
-                fallen = [
-                    p["instrument_id"]
-                    for p in positions
-                    if p.get("asset_class") == "Investment Grade Corporate Bonds"
-                ]
-                if fallen:
-                    path += (
-                        f", (Position:{', '.join(fallen)})"
-                        f"-[:RATED_BELOW_IG]->(Aggregate:non_ig)"
-                    )
-            return path
+            return self._build_non_ig_path(positions, non_ig_ac_names or [])
         if sel == "liquid_positions":
-            ids = [p["instrument_id"] for p in positions]
+            ids = [p.get("instrument_id", "UNKNOWN") for p in positions]
             return f"(Position:{', '.join(ids)})-[:IN_ASSET_CLASS]->(AssetClass:liquid)"
         if sel == "all_positions":
             return "(Position:all)-[:IN_ASSET_CLASS]->(AssetClass:all)"
         if sel == "positions_by_issuer":
-            # Build real graph path reflecting the actual winning group.
             ids_str = ", ".join(sorted(member_ids or []))
             if group_key == "parent_issuer":
-                # GRE grouped by parent: positions roll up through Issuer → ParentIssuer.
                 return (
                     f"(Position:{ids_str})-[:ISSUED_BY]->(Issuer)"
                     f"-[:ROLLS_UP_TO]->(ParentIssuer:{group_name})"
                 )
-            else:
-                # Grouped by immediate issuer (default).
-                return (
-                    f"(Position:{ids_str})-[:ISSUED_BY]->(Issuer:{group_name})"
-                )
+            return f"(Position:{ids_str})-[:ISSUED_BY]->(Issuer:{group_name})"
         return f"({sel})"
 
-    def _get_citation(self, spec: FigureSpec | None = None) -> dict | None:
+    def _get_citation(self, spec: FigureSpec) -> dict | None:
         """Return citation from the SourceChunk node reachable via this figure's Limit node.
 
         Traversal: (Limit {rule_type})-[:DERIVED_FROM]->(SourceChunk)
@@ -286,7 +315,7 @@ class ComputeEngine:
         Figure(status="ERROR") — a figure that cannot be traced to a source document is not
         safe to emit as a numeric value.
         """
-        rule_type = _FIGURE_RULE_TYPE.get(spec.id, "") if spec else ""
+        rule_type = _FIGURE_RULE_TYPE.get(spec.id, "")
         # Guard: if rule_type is empty (falsy), we have no rule anchor to cite.
         # Return None so that the caller's missing-citation→ERROR path fires,
         # rather than returning a random VERIFIED SourceChunk unrelated to this figure.
@@ -337,67 +366,87 @@ class ComputeEngine:
             record = result.single()
             return bool(record and record["cnt"] > 0)
 
+    def _check_gates(
+        self, spec: FigureSpec, citation: dict | None
+    ) -> Figure | None:
+        """Check citation and PENDING_REVIEW gates. Returns a blocking Figure or None to proceed."""
+        _empty_citation: dict = {"source_doc": "", "page": 0, "chunk_id": "", "passage_summary": ""}
+        if citation is None:
+            return Figure(
+                figure=spec.id, value="ERROR", utilization="n/a", status="ERROR",
+                limit=spec.limit_display,
+                graph_path="no reachable SourceChunk — citation unresolvable",
+                citation=_empty_citation,
+            )
+        if self._check_limit_node_pending(spec):
+            return Figure(
+                figure=spec.id, value="ERROR", utilization="n/a", status="ERROR",
+                limit=spec.limit_display,
+                graph_path="PENDING_REVIEW Limit node blocks computation",
+                citation=citation,
+            )
+        return None
+
+    def _resolve_value(
+        self,
+        spec: FigureSpec,
+        nav_value: Decimal,
+        citation: dict,
+    ) -> tuple[Decimal, list[dict], str, str, list[str]] | Figure:
+        """Resolve positions and compute the raw Decimal value for a figure.
+
+        Returns either (value, positions, group_name, group_key, member_ids)
+        or a blocking Figure on error.
+        """
+        if spec.selector == "positions_by_issuer":
+            raw_value, group_name, group_key, member_ids = self._compute_group_value(spec, nav_value)
+            if raw_value is None:
+                return Figure(
+                    figure=spec.id, value="ERROR", utilization="n/a", status="ERROR",
+                    limit=spec.limit_display,
+                    graph_path="no positions found for group comparison",
+                    citation=citation,
+                )
+            return raw_value, [], group_name, group_key, member_ids
+
+        positions = self._get_positions(spec)
+        for p in positions:
+            if p.get("status") == "PENDING_REVIEW":
+                return Figure(
+                    figure=spec.id, value="ERROR", utilization="n/a", status="ERROR",
+                    limit=spec.limit_display,
+                    graph_path="PENDING_REVIEW node blocks computation",
+                    citation=citation,
+                )
+        return self._compute_value(spec, positions, nav_value), positions, "", "", []
+
     def compute_figure(self, spec: FigureSpec) -> Figure:
         """Compute a single Figure by traversing the graph."""
         nav_value = self._get_nav()
         citation = self._get_citation(spec)
 
-        # Gate 1: no reachable SourceChunk — figure cannot be traced to a source document.
-        # A figure with an unresolvable citation must not be emitted as a numeric value.
-        _empty_citation: dict = {"source_doc": "", "page": 0, "chunk_id": "", "passage_summary": ""}
-        if citation is None:
-            return Figure(
-                figure=spec.id,
-                value="ERROR",
-                utilization="n/a",
-                status="ERROR",
-                limit=spec.limit_display,
-                graph_path="no reachable SourceChunk — citation unresolvable",
-                citation=_empty_citation,
-            )
+        gate_result = self._check_gates(spec, citation)
+        if gate_result is not None:
+            return gate_result
 
-        # Gate 2: anchor Limit node is pending human verification
-        if self._check_limit_node_pending(spec):
-            return Figure(
-                figure=spec.id,
-                value="ERROR",
-                utilization="n/a",
-                status="ERROR",
-                limit=spec.limit_display,
-                graph_path="PENDING_REVIEW Limit node blocks computation",
-                citation=citation,
-            )
-
-        group_name: str = ""
-        group_key: str = ""
-        member_ids: list[str] = []
-        if spec.selector == "positions_by_issuer":
-            value, group_name, group_key, member_ids = self._compute_group_value(spec, nav_value)
-            positions = []  # groups don't return flat list
-        else:
-            positions = self._get_positions(spec)
-            # Check for PENDING_REVIEW nodes in positions
-            for p in positions:
-                if p.get("status") == "PENDING_REVIEW":
-                    return Figure(
-                        figure=spec.id,
-                        value="ERROR",
-                        utilization="n/a",
-                        status="ERROR",
-                        limit=spec.limit_display,
-                        graph_path="PENDING_REVIEW node blocks computation",
-                        citation=citation,
-                    )
-            value = self._compute_value(spec, positions, nav_value)
+        # _check_gates returns a blocking figure when citation is None, so it is a dict here.
+        citation = cast(dict, citation)
+        resolved = self._resolve_value(spec, nav_value, citation)
+        if isinstance(resolved, Figure):
+            return resolved
+        value, positions, group_name, group_key, member_ids = resolved
 
         status = self._apply_comparator(spec, value)
         formatted_value = self._apply_formatter(spec, value)
         utilization = self._compute_utilization(spec, value)
+        non_ig_ac_names: list[str] = (
+            self._fetch_non_ig_ac_names() if spec.selector == "positions_matching" else []
+        )
         graph_path = self._build_graph_path(
             spec, positions,
             group_name=group_name, group_key=group_key, member_ids=member_ids,
+            non_ig_ac_names=non_ig_ac_names,
         )
-
         return Figure(
             figure=spec.id,
             value=formatted_value,

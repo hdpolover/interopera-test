@@ -54,6 +54,11 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return result
 
 
+def merge_configs(base: dict, override: dict) -> dict:
+    """Return a new dict with override applied on top of base."""
+    return _deep_merge(base, override)
+
+
 def load_config(base_yaml: str, firm_yaml: str) -> FirmConfig:
     """Load and merge base + firm YAML, validate with pydantic."""
     with open(base_yaml) as f:

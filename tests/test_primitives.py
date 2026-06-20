@@ -119,8 +119,9 @@ def test_within_min_max_breach_above():
 
 
 def test_within_min_max_at_limit_min():
+    # Updated: boundary equality now returns "AT LIMIT" (matches docstring semantics)
     from src.compute.primitives import within_min_max
-    assert within_min_max(Decimal("20"), Decimal("20"), Decimal("60")) == "OK"
+    assert within_min_max(Decimal("20"), Decimal("20"), Decimal("60")) == "AT LIMIT"
 
 
 def test_max_cap_ok():
@@ -187,6 +188,57 @@ def test_sgd_dv01():
     assert sgd_dv01(Decimal("38790")) == "SGD 38,790 / bp"
     assert sgd_dv01(Decimal("85000")) == "SGD 85,000 / bp"
     assert sgd_dv01(Decimal("1000")) == "SGD 1,000 / bp"
+
+
+def test_sum_pct_zero_nav_raises():
+    from decimal import Decimal
+    import pytest
+    from src.compute.primitives import sum_pct
+    with pytest.raises(ValueError, match="NAV is zero"):
+        sum_pct([{"market_value_sgd": "1000"}], Decimal("0"))
+
+
+def test_weighted_avg_duration_zero_nav_raises():
+    from decimal import Decimal
+    import pytest
+    from src.compute.primitives import weighted_avg_duration
+    with pytest.raises(ValueError, match="NAV is zero"):
+        weighted_avg_duration([{"market_value_sgd": "1000", "modified_duration": "2.0"}], Decimal("0"))
+
+
+def test_max_group_pct_zero_nav_raises():
+    from decimal import Decimal
+    import pytest
+    from src.compute.primitives import max_group_pct
+    groups = {"GroupA": [{"market_value_sgd": "5000", "modified_duration": "2.0"}]}
+    with pytest.raises(ValueError, match="NAV is zero"):
+        max_group_pct(groups, Decimal("0"))
+
+
+def test_within_min_max_at_min_boundary():
+    from decimal import Decimal
+    from src.compute.primitives import within_min_max
+    assert within_min_max(Decimal("20"), Decimal("20"), Decimal("60")) == "AT LIMIT"
+
+
+def test_within_min_max_at_max_boundary():
+    from decimal import Decimal
+    from src.compute.primitives import within_min_max
+    assert within_min_max(Decimal("60"), Decimal("20"), Decimal("60")) == "AT LIMIT"
+
+
+def test_max_group_pct_tie_break_deterministic():
+    """When two groups have equal pct, group with lexicographically smaller name wins."""
+    from decimal import Decimal
+    from src.compute.primitives import max_group_pct
+    nav_value = Decimal("100")
+    groups = {
+        "ZZZ_Group": [{"market_value_sgd": "50", "modified_duration": "2.0"}],
+        "AAA_Group": [{"market_value_sgd": "50", "modified_duration": "2.0"}],
+    }
+    name, pct = max_group_pct(groups, nav_value)
+    assert name == "AAA_Group", f"Expected tie-break winner 'AAA_Group', got '{name}'"
+    assert pct == Decimal("0.5000")
 
 
 def test_no_llm_imports_in_primitives():
