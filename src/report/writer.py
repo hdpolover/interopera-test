@@ -1,15 +1,23 @@
 # src/report/writer.py
-"""Report writer — produces xlsx from computed figures list only.
+"""Report writer — populates sample_docs/report_template.xlsx from computed figures only.
 
-Columns match sample_docs/report_template.xlsx exactly:
-  Section | Metric | Value | Limit | Utilization | Status | Source (graph path → doc/page)
+Loads the provided report_template.xlsx (Section + Metric pre-filled by the brief),
+writes Value / Limit / Utilization / Status / Source into columns C–G, and applies
+status-based row colouring (BREACH=red, AT LIMIT=amber, OK=green).
 
-13 metric rows, one per figure spec in FIGURE_REGISTRY.
 All cells sourced exclusively from the figures list — no narrative/LLM input.
+Falls back to generating a new workbook if the template is not found.
 """
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from src.compute.registry import Figure
+
+# Template lives in sample_docs/ relative to repo root.
+# In Docker the repo is mounted at /app; locally it is the CWD.
+_TEMPLATE_NAME = os.path.join("sample_docs", "report_template.xlsx")
 
 # Ordered list of (section, metric_label, figure_id) matching report_template.xlsx row order.
 # Inverse of reconciler._METRIC_TO_FIGURE_ID, using the canonical template metric names.
@@ -60,11 +68,25 @@ def _build_source(fig: Figure) -> str:
     return " | ".join(parts)
 
 
-def write_report(figures: list[Figure], output_path: str) -> None:
-    """Write compliance figures to xlsx following the report_template.xlsx structure.
+def _find_template() -> str | None:
+    """Search for report_template.xlsx from CWD upward (handles Docker /app and local)."""
+    candidates = [
+        Path(_TEMPLATE_NAME),
+        Path("/app") / _TEMPLATE_NAME,
+    ]
+    for p in candidates:
+        if p.exists():
+            return str(p)
+    return None
 
-    Reads only from the figures list — no narrative or LLM input.
-    Produces exactly 13 data rows (one per template metric) plus a header row.
+
+def write_report(figures: list[Figure], output_path: str) -> None:
+    """Populate report_template.xlsx with computed figures and save to output_path.
+
+    Loads sample_docs/report_template.xlsx (Section + Metric pre-filled by the brief)
+    and writes Value / Limit / Utilization / Status / Source into columns C–G for
+    each of the 13 metric rows. Falls back to generating a new workbook if the
+    template is not found.
 
     Formatting applied:
     - Header row: bold + light gray fill (#EEEEEE)
@@ -73,14 +95,11 @@ def write_report(figures: list[Figure], output_path: str) -> None:
     - OK rows: green background (#00AA44) + white text
     - Auto-fit column widths based on max content length
 
-    Args:
-        figures: Computed Figure objects, keyed by figure.figure (figure_id).
-        output_path: Destination .xlsx file path.
+    All cells sourced exclusively from the figures list — no narrative/LLM input.
     """
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
 
-    # Status → fill/font styles
     _STATUS_FILL = {
         "BREACH":   PatternFill(fill_type="solid", fgColor="FF4444"),
         "AT LIMIT": PatternFill(fill_type="solid", fgColor="FFAA00"),
@@ -90,57 +109,71 @@ def write_report(figures: list[Figure], output_path: str) -> None:
     _HEADER_FILL = PatternFill(fill_type="solid", fgColor="EEEEEE")
     _HEADER_FONT = Font(bold=True)
 
-    # Build lookup: figure_id → Figure
     fig_map: dict[str, Figure] = {f.figure: f for f in figures}
+    template_path = _find_template()
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Report"
+    if template_path:
+        # Populate the provided template — Section + Metric already in cols A + B.
+        wb = openpyxl.load_workbook(template_path)
+        ws = wb.active
 
-    # Write and style header row
-    ws.append(_HEADERS)
-    header_row = ws[1]
-    for cell in header_row:
-        cell.font = _HEADER_FONT
-        cell.fill = _HEADER_FILL
-        cell.alignment = Alignment(horizontal="center")
+        # Style the header row (row 1 already has content from template).
+        for cell in ws[1]:
+            cell.font = _HEADER_FONT
+            cell.fill = _HEADER_FILL
+            cell.alignment = Alignment(horizontal="center")
 
-    # Write data rows with status-based highlighting
-    for section, metric, fig_id in _TEMPLATE_ROWS:
-        fig = fig_map.get(fig_id)
-        if fig is not None:
-            row_data = [
-                section,
-                metric,
-                fig.value,
-                fig.limit,
-                fig.utilization,
-                fig.status,
-                _build_source(fig),
-            ]
-            status = fig.status
-        else:
-            row_data = [section, metric, None, None, None, None, None]  # type: ignore[list-item]
+        # Fill columns C–G (3–7) for each data row, in template row order.
+        for row_idx, (_, _, fig_id) in enumerate(_TEMPLATE_ROWS, start=2):
+            fig = fig_map.get(fig_id)
             status = None
-        ws.append(row_data)
+            if fig is not None:
+                ws.cell(row=row_idx, column=3).value = fig.value
+                ws.cell(row=row_idx, column=4).value = fig.limit
+                ws.cell(row=row_idx, column=5).value = fig.utilization
+                ws.cell(row=row_idx, column=6).value = fig.status
+                ws.cell(row=row_idx, column=7).value = _build_source(fig)
+                status = fig.status
 
-        # Apply status highlight to the entire row
-        if status in _STATUS_FILL:
-            fill = _STATUS_FILL[status]
-            font = _WHITE_FONT
-            current_row = ws[ws.max_row]
-            for cell in current_row:
-                cell.fill = fill
-                cell.font = font
+            if status in _STATUS_FILL:
+                fill = _STATUS_FILL[status]
+                for col in range(1, 8):
+                    ws.cell(row=row_idx, column=col).fill = fill
+                    ws.cell(row=row_idx, column=col).font = _WHITE_FONT
 
-    # Auto-fit column widths: max content length + 4 padding
+    else:
+        # Fallback: generate workbook from scratch (template not found).
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Report"
+
+        ws.append(_HEADERS)
+        for cell in ws[1]:
+            cell.font = _HEADER_FONT
+            cell.fill = _HEADER_FILL
+            cell.alignment = Alignment(horizontal="center")
+
+        for section, metric, fig_id in _TEMPLATE_ROWS:
+            fig = fig_map.get(fig_id)
+            if fig is not None:
+                row_data = [section, metric, fig.value, fig.limit,
+                            fig.utilization, fig.status, _build_source(fig)]
+                status = fig.status
+            else:
+                row_data = [section, metric, None, None, None, None, None]  # type: ignore[list-item]
+                status = None
+            ws.append(row_data)
+            if status in _STATUS_FILL:
+                for cell in ws[ws.max_row]:
+                    cell.fill = _STATUS_FILL[status]
+                    cell.font = _WHITE_FONT
+
+    # Auto-fit column widths.
     for col_cells in ws.columns:
-        max_len = 0
-        for cell in col_cells:
-            cell_value = cell.value
-            if cell_value is not None:
-                max_len = max(max_len, len(str(cell_value)))
-        col_letter = col_cells[0].column_letter
-        ws.column_dimensions[col_letter].width = max_len + 4
+        max_len = max(
+            (len(str(cell.value)) for cell in col_cells if cell.value is not None),
+            default=10,
+        )
+        ws.column_dimensions[col_cells[0].column_letter].width = max_len + 4
 
     wb.save(output_path)
