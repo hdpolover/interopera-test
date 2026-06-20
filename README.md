@@ -137,7 +137,7 @@ docker compose run --rm app python -m src.cli.main <subcommand> [options]
 | `verify-graph` | List `PENDING_REVIEW` nodes; optionally approve with `--approve <node_id> --actor <name>` or `--approve-all` |
 | `run --firm {A,B,C}` | Compute all 13 compliance figures and write report + JSON |
 | `reconcile --firm {A,B,C}` | Reconcile computed figures against the answer key (xlsx for Firm A, YAML for Firm B); exits 1 on mismatch |
-| `evaluate --firm {A,B,C}` | Full Phase 5: reconcile + traceability check + firewall check; exits 1 on any failure |
+| `evaluate --firm {A,B,C}` | Full Phase 5: reconcile + traceability check + firewall check; exits 1 on any failure; writes `out/evaluate_{firm}.json` |
 | `verify-determinism --firm {A,B,C}` | Run the engine twice and assert byte-identical JSON output |
 | `narrate --firm {A,B,C}` | Generate narrative (LLM or stub) and run the firewall check |
 | `query-metric --metric <name>` / `--all` | Multi-hop graph traversal: RiskMetric → BreachAction → Owner for any §3.1 metric |

@@ -26,6 +26,7 @@ This report documents live verification of the InterOpera fund compliance report
 | **C3 — No LLM Numbers** | LLM writes narrative prose only; cannot write to report cells | 6-gate LLM containment (static import gate, DI gate, report-from-figures-only gate, human-only approval gate, reconcile gate, firewall gate) | **PASS** |
 | **C4 — Reconcile Firm A** | System must produce figures matching Firm A answer key exactly | `src/reconcile/reconciler.py`; 13/13 PASS verified live | **PASS** |
 | **C5 — Firm B Config-Only** | Onboard Firm B without code changes, using only YAML config | `config/firm_b.yaml` (3 knobs); 13/13 Firm B PASS verified live | **PASS** |
+| **C5 — utilization format** | Firm B renders utilization in truncated bps (`5833 bps`) not percent (`58.3%`) | `output.utilization_format: truncated_bps` in `firm_b.yaml`; `test_engine_firm_b.py` asserts `"5833 bps"` for SGS utilization | **PASS** |
 | **Append-only audit log** | Postgres audit table; no UPDATE/DELETE; SHA-256 hash chain | `src/audit/log.py`; BEFORE UPDATE OR DELETE trigger; `verify_chain()` | **PASS** |
 
 ### 1.2 Phase Requirements
@@ -291,6 +292,8 @@ All Phase 5 checks PASSED
 ```
 
 **Note on LLM mode:** `evaluate` always uses the deterministic stub narrator — firewall result is reproducible regardless of `ANTHROPIC_API_KEY`. The `narrate` command uses the live LLM (default: `claude-sonnet-4-6`, overridable via `ANTHROPIC_MODEL`). See `docs/model_comparison.md` for a side-by-side comparison of Haiku, Sonnet, and Opus 4.8 narrative output and firewall behavior.
+
+**`evaluate` output artifact:** In addition to the terminal table, `evaluate` writes `out/evaluate_{firm_id}.json` containing the full structured result (reconcile pass/fail per figure, traceability flags, firewall result). This file is machine-readable and suitable for CI assertion or downstream tooling.
 
 ### 3.7 Determinism Verification
 
