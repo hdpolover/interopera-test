@@ -1,0 +1,287 @@
+[
+  {
+    "chunk_id": "0b2208c5055e4df7",
+    "extracted_fields": {
+      "bounds": {
+        "max_value": "0.60",
+        "min_value": "0.20",
+        "unit": "pct"
+      },
+      "limit_ref": "allocation_sgs_limit",
+      "rule_type": "allocation_limit"
+    },
+    "extraction_confidence": 0.95,
+    "page": 1,
+    "passage": "Singapore Government Securities: allocation 0.20-0.60 of NAV (Section 2).",
+    "passage_summary": "Singapore Government Securities: allocation 0.20-0.60 of NAV (Section 2).",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "edceffd6ae5182de",
+    "extracted_fields": {
+      "bounds": {
+        "max_value": "0.40",
+        "min_value": "0.00",
+        "unit": "pct"
+      },
+      "limit_ref": "allocation_mas_limit",
+      "rule_type": "allocation_limit"
+    },
+    "extraction_confidence": 0.95,
+    "page": 1,
+    "passage": "MAS Bills: allocation 0.00-0.40 of NAV (Section 2).",
+    "passage_summary": "MAS Bills: allocation 0.00-0.40 of NAV (Section 2).",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "f6814988a1d7ff78",
+    "extracted_fields": {
+      "bounds": {
+        "max_value": "0.50",
+        "min_value": "0.10",
+        "unit": "pct"
+      },
+      "limit_ref": "allocation_ig_limit",
+      "rule_type": "allocation_limit"
+    },
+    "extraction_confidence": 0.95,
+    "page": 1,
+    "passage": "Investment Grade Corporate Bonds: allocation 0.10-0.50 of NAV (Section 2).",
+    "passage_summary": "Investment Grade Corporate Bonds: allocation 0.10-0.50 of NAV (Section 2).",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "48f0452306e8fe48",
+    "extracted_fields": {
+      "bounds": {
+        "max_value": "0.15",
+        "min_value": "0.00",
+        "unit": "pct"
+      },
+      "limit_ref": "allocation_hy_limit",
+      "rule_type": "allocation_limit"
+    },
+    "extraction_confidence": 0.95,
+    "page": 1,
+    "passage": "High Yield Bonds: allocation 0.00-0.15 of NAV (Section 2).",
+    "passage_summary": "High Yield Bonds: allocation 0.00-0.15 of NAV (Section 2).",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "710d3339e995532f",
+    "extracted_fields": {
+      "bounds": {
+        "max_value": "0.20",
+        "min_value": "0.00",
+        "unit": "pct"
+      },
+      "limit_ref": "allocation_fx_limit",
+      "rule_type": "allocation_limit"
+    },
+    "extraction_confidence": 0.95,
+    "page": 2,
+    "passage": "Foreign Currency Bonds: allocation 0.00-0.20 of NAV (Section 2).",
+    "passage_summary": "Foreign Currency Bonds: allocation 0.00-0.20 of NAV (Section 2).",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "9a75127ee80b5180",
+    "extracted_fields": {
+      "bounds": {
+        "max_value": "0.10",
+        "min_value": "0.00",
+        "unit": "pct"
+      },
+      "limit_ref": "allocation_sc_limit",
+      "rule_type": "allocation_limit"
+    },
+    "extraction_confidence": 0.95,
+    "page": 2,
+    "passage": "Structured Credit: allocation 0.00-0.10 of NAV (Section 2).",
+    "passage_summary": "Structured Credit: allocation 0.00-0.10 of NAV (Section 2).",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "ed9c80f2243c8dd4",
+    "extracted_fields": {
+      "bounds": {
+        "floor_value": "0.05",
+        "unit": "pct"
+      },
+      "limit_ref": "allocation_cash_limit",
+      "rule_type": "allocation_limit"
+    },
+    "extraction_confidence": 0.95,
+    "page": 2,
+    "passage": "Cash & Cash Equivalents: allocation 0.05-0.25 of NAV (Section 2).",
+    "passage_summary": "Cash & Cash Equivalents: allocation 0.05-0.25 of NAV (Section 2).",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "8aa1953aa4c22ecb",
+    "extracted_fields": {
+      "bounds": {
+        "max_value": "6.5",
+        "min_value": "2.0",
+        "unit": "years"
+      },
+      "limit_ref": "duration_limit",
+      "rule_type": "duration_limit"
+    },
+    "extraction_confidence": 0.95,
+    "page": 2,
+    "passage": "Modified Duration band 2.0-6.5 years (Section 3.1).",
+    "passage_summary": "Modified Duration band 2.0-6.5 years (Section 3.1).",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "d24bac04e9a981d3",
+    "extracted_fields": {
+      "bounds": {
+        "cap_value": "85000",
+        "unit": "sgd"
+      },
+      "limit_ref": "dv01_limit",
+      "rule_type": "dv01_limit"
+    },
+    "extraction_confidence": 0.95,
+    "page": 2,
+    "passage": "Portfolio DV01 cap SGD 85000 per bp (Section 3.1).",
+    "passage_summary": "Portfolio DV01 cap SGD 85000 per bp (Section 3.1).",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "6a916f6b9a07090b",
+    "extracted_fields": {
+      "bounds": {
+        "cap_value": "0.20",
+        "unit": "pct"
+      },
+      "limit_ref": "non_ig_cap_limit",
+      "rule_type": "non_ig_cap"
+    },
+    "extraction_confidence": 0.92,
+    "page": 2,
+    "passage": "Foreign Currency Bonds (hedged) 0% 20% Currency risk must be fully hedged Structured Credit (ABS/MBS) 0% 10% AAA tranche only; pre-approved list Cash & Cash Equivalents 5% 25% Minimum liquidity floor Note: Aggregate exposure to non-investment-grade instruments (High Yield + Structured Credit) must not exceed 20% of NAV.",
+    "passage_summary": "Foreign Currency Bonds (hedged) 0% 20% Currency risk must be fully hedged Structured Credit (ABS/MBS) 0% 10% AAA tranche",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "9647de81080902bb",
+    "extracted_fields": {
+      "bounds": {
+        "cap_value": "0.08",
+        "unit": "pct"
+      },
+      "limit_ref": "corporate_issuer_limit",
+      "rule_type": "concentration_limit"
+    },
+    "extraction_confidence": 0.92,
+    "page": 2,
+    "passage": "2 Credit & Counterparty Risk Single Issuer Concentration: No single issuer (excluding Singapore Government) may represent more than 8% of NAV.",
+    "passage_summary": "2 Credit & Counterparty Risk Single Issuer Concentration: No single issuer (excluding Singapore Government) may represen",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "ff0e04e634136a6b",
+    "extracted_fields": {
+      "bounds": {
+        "cap_value": "0.12",
+        "unit": "pct"
+      },
+      "limit_ref": "gre_issuer_limit",
+      "rule_type": "concentration_limit"
+    },
+    "extraction_confidence": 0.92,
+    "page": 2,
+    "passage": "Government-related entities (GREs) are capped at 12% per issuer.",
+    "passage_summary": "Government-related entities (GREs) are capped at 12% per issuer.",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "60c2f4aacb1c293f",
+    "extracted_fields": {
+      "bounds": {
+        "floor_value": "0.25",
+        "unit": "pct"
+      },
+      "limit_ref": "liquidity_limit",
+      "rule_type": "liquidity_requirement"
+    },
+    "extraction_confidence": 0.92,
+    "page": 2,
+    "passage": "Liquid assets (SGS + MAS Bills + Cash) must constitute a minimum of 25% of NAV under normal conditions and 35% under stress (defined as redemptions exceeding 15% of NAV in any rolling 5-day period).",
+    "passage_summary": "Liquid assets (SGS + MAS Bills + Cash) must constitute a minimum of 25% of NAV under normal conditions and 35% under str",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "c85c0a9ed4794b84",
+    "extracted_fields": {
+      "bounds": {
+        "cap_value": "0.05",
+        "unit": "pct"
+      },
+      "rule_type": "counterparty_limit"
+    },
+    "extraction_confidence": 0.8,
+    "page": 2,
+    "passage": "Counterparty risk for OTC derivatives is governed by the ISDA Master Agreement framework; net exposure to any single counterparty must not exceed 5% of NAV.",
+    "passage_summary": "Counterparty risk for OTC derivatives is governed by the ISDA Master Agreement framework; net exposure to any single cou",
+    "source_doc": "sample_fund_guidelines.pdf"
+  },
+  {
+    "chunk_id": "827726a0b80cfe19",
+    "extracted_fields": {
+      "metrics": [
+        {
+          "breach_action": "PM notification within 1h",
+          "limit": "2.0-6.5 years",
+          "metric": "portfolio_duration",
+          "monitoring_frequency": "Daily",
+          "owner": "Portfolio Manager"
+        },
+        {
+          "breach_action": "Risk Committee alert",
+          "limit": "<= SGD 85,000 per bp",
+          "metric": "portfolio_dv01",
+          "monitoring_frequency": "Daily",
+          "owner": "Risk Committee"
+        },
+        {
+          "breach_action": "CRO review required",
+          "limit": "<= 2.5% of NAV",
+          "metric": "value_at_risk_95_10d",
+          "monitoring_frequency": "Daily",
+          "owner": "Chief Risk Officer"
+        },
+        {
+          "breach_action": "Board reporting if exceeded",
+          "limit": "<= 3.8% of NAV",
+          "metric": "expected_shortfall_97_5",
+          "monitoring_frequency": "Weekly",
+          "owner": "Board Risk Committee"
+        },
+        {
+          "breach_action": "Strategy review",
+          "limit": "<= +/-12% NAV for +/-200bp",
+          "metric": "interest_rate_sensitivity",
+          "monitoring_frequency": "Monthly",
+          "owner": "Investment Management Committee"
+        },
+        {
+          "breach_action": "IPS review triggered",
+          "limit": "<= 3.0% annualised",
+          "metric": "tracking_error_vs_benchmark",
+          "monitoring_frequency": "Monthly",
+          "owner": "IPS Committee"
+        }
+      ],
+      "rule_type": "market_risk_metrics"
+    },
+    "extraction_confidence": 0.96,
+    "page": 2,
+    "passage": "Section 3.1 Market Risk. Modified Duration: limit 2.0-6.5 years, monitoring Daily, breach action PM notification within 1h. Portfolio DV01: limit <= SGD 85,000 per bp, monitoring Daily, breach action Risk Committee alert. Value-at-Risk (95%, 10-day): limit <= 2.5% of NAV, monitoring Daily, breach action CRO review required. Expected Shortfall (97.5%): limit <= 3.8% of NAV, monitoring Weekly, breach action Board reporting if exceeded. Interest Rate Sensitivity: limit <= +/-12% NAV impact for +/-200bp, monitoring Monthly, breach action Strategy review. Tracking Error vs Benchmark: limit <= 3.0% annualised, monitoring Monthly, breach action IPS review triggered.",
+    "passage_summary": "Market risk metrics: limits, monitoring frequency, breach actions, and notified owners (Section 3.1).",
+    "source_doc": "sample_fund_guidelines.pdf"
+  }
+]

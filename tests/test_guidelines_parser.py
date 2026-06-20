@@ -1,126 +1,53 @@
+from __future__ import annotations
+
+import dataclasses
+import json
+import os
+
 import pytest
 
+from src.ingestion.guidelines_parser import RuleChunk, chunk_id_from_text, parse_guidelines
 
-# Fix 7: chunk ID is now 16 hex chars
+
+# ---------------------------------------------------------------------------
+# chunk_id_from_text tests (preserved from original)
+# ---------------------------------------------------------------------------
+
 def test_chunk_id_is_16_char_hex():
-    from src.ingestion.guidelines_parser import chunk_id_from_text
     cid = chunk_id_from_text("test passage content")
     assert len(cid) == 16, f"Expected 16 hex chars, got {len(cid)}: {cid!r}"
     int(cid, 16)  # must be valid hex
 
+
 def test_chunk_id_is_deterministic():
-    from src.ingestion.guidelines_parser import chunk_id_from_text
     text = "The allocation to Singapore Government Securities shall be between 20% and 60%."
     assert chunk_id_from_text(text) == chunk_id_from_text(text)
 
+
 def test_chunk_id_differs_for_different_text():
-    from src.ingestion.guidelines_parser import chunk_id_from_text
     assert chunk_id_from_text("text a") != chunk_id_from_text("text b")
 
-def test_stub_returns_at_least_6_chunks():
-    from src.ingestion.guidelines_parser import parse_guidelines
-    chunks = parse_guidelines(pdf_path=None, llm_client=None)
-    assert len(chunks) >= 6
-
-# Fix 7: stub chunk IDs are 16 hex chars
-def test_stub_chunk_ids_are_16_char_hex():
-    from src.ingestion.guidelines_parser import parse_guidelines
-    chunks = parse_guidelines(pdf_path=None, llm_client=None)
-    for chunk in chunks:
-        assert len(chunk.chunk_id) == 16, f"Expected 16 chars, got {len(chunk.chunk_id)}: {chunk.chunk_id!r}"
-        int(chunk.chunk_id, 16)
-
-def test_stub_extraction_confidence_is_float():
-    from src.ingestion.guidelines_parser import parse_guidelines
-    chunks = parse_guidelines(pdf_path=None, llm_client=None)
-    for chunk in chunks:
-        assert isinstance(chunk.extraction_confidence, float)
-        assert 0.0 <= chunk.extraction_confidence <= 1.0
-
-def test_stub_covers_known_rule_types():
-    from src.ingestion.guidelines_parser import parse_guidelines
-    chunks = parse_guidelines(pdf_path=None, llm_client=None)
-    rule_types = {c.extracted_fields.get("rule_type") for c in chunks}
-    required = {"allocation_limit", "concentration_limit", "liquidity_requirement",
-                "duration_limit", "dv01_limit", "non_ig_cap"}
-    assert required.issubset(rule_types), f"Missing rule types: {required - rule_types}"
-
-def test_stub_source_doc_is_set():
-    from src.ingestion.guidelines_parser import parse_guidelines
-    chunks = parse_guidelines(pdf_path=None, llm_client=None)
-    for chunk in chunks:
-        assert chunk.source_doc, "source_doc must not be empty"
-
-def test_rule_chunk_has_all_fields():
-    from src.ingestion.guidelines_parser import parse_guidelines, RuleChunk
-    import dataclasses
-    chunks = parse_guidelines(pdf_path=None, llm_client=None)
-    assert len(chunks) > 0
-    chunks[0]
-    field_names = {f.name for f in dataclasses.fields(RuleChunk)}
-    assert field_names == {"chunk_id", "source_doc", "page", "passage",
-                           "passage_summary", "extracted_fields", "extraction_confidence"}
 
 # Fix 7: pin test uses first 16 hex chars of sha256("hello")
 def test_chunk_id_pins_to_known_sha256():
     # sha256("hello") = 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
     # first 16 hex chars = "2cf24dba5fb0a30e"
-    from src.ingestion.guidelines_parser import chunk_id_from_text
     assert chunk_id_from_text("hello") == "2cf24dba5fb0a30e"
 
-def test_stub_chunk_ids_are_distinct():
-    from src.ingestion.guidelines_parser import parse_guidelines
-    chunks = parse_guidelines(pdf_path=None, llm_client=None)
-    ids = [c.chunk_id for c in chunks]
-    assert len(set(ids)) == len(ids), f"Duplicate chunk_ids: {ids}"
-    # 6 reported-figure rule types + market_risk_metrics + the low-confidence
-    # counterparty_limit chunk (demonstrates the human-verification gate) = 8.
-    assert len(ids) == 8
+
+# ---------------------------------------------------------------------------
+# RuleChunk dataclass tests (preserved)
+# ---------------------------------------------------------------------------
+
+def test_rule_chunk_has_all_fields():
+    field_names = {f.name for f in dataclasses.fields(RuleChunk)}
+    assert field_names == {
+        "chunk_id", "source_doc", "page", "passage",
+        "passage_summary", "extracted_fields", "extraction_confidence",
+    }
 
 
-# Fix 5: LLM path with pdf_path provided but extraction returns nothing raises ValueError
-def test_pdf_with_llm_that_returns_no_chunks_raises_valueerror():
-    from src.ingestion.guidelines_parser import parse_guidelines
-
-    class AlwaysNoneLLM:
-        def extract_rule(self, text: str) -> None:
-            return None
-
-    # Create a fake PDF-like temp file — pdfplumber will fail to open it,
-    # which is caught and re-raised. We test the ValueError path directly
-    # by mocking the whole pdfplumber open context.
-    import unittest.mock as mock
-
-    mock_page = mock.MagicMock()
-    mock_page.extract_text.return_value = "A long enough paragraph that passes the minimum length filter for testing purposes here."
-    mock_pdf = mock.MagicMock()
-    mock_pdf.pages = [mock_page]
-    mock_pdf.__enter__ = mock.MagicMock(return_value=mock_pdf)
-    mock_pdf.__exit__ = mock.MagicMock(return_value=False)
-
-    with mock.patch("pdfplumber.open", return_value=mock_pdf):
-        with pytest.raises(ValueError, match="no rule chunks"):
-            parse_guidelines(pdf_path="fake.pdf", llm_client=AlwaysNoneLLM())
-
-
-# Fix 5: stub path (pdf_path=None) still returns stubs, not an error
-def test_stub_mode_pdf_path_none_returns_stubs():
-    from src.ingestion.guidelines_parser import parse_guidelines
-    chunks = parse_guidelines(pdf_path=None, llm_client=None)
-    assert len(chunks) >= 6
-
-
-# Fix 6: _MIN_PARAGRAPH_CHARS constant is exported from the module
-def test_min_paragraph_chars_constant_exists():
-    import src.ingestion.guidelines_parser as gp
-    assert hasattr(gp, "_MIN_PARAGRAPH_CHARS"), "_MIN_PARAGRAPH_CHARS constant not found"
-    assert isinstance(gp._MIN_PARAGRAPH_CHARS, int)
-    assert gp._MIN_PARAGRAPH_CHARS > 0
-
-
-# Fix 8: RuleChunk must be frozen (immutable)
 def test_rule_chunk_is_frozen():
-    from src.ingestion.guidelines_parser import RuleChunk
     chunk = RuleChunk(
         chunk_id="abc",
         source_doc="test.pdf",
@@ -131,4 +58,54 @@ def test_rule_chunk_is_frozen():
         extraction_confidence=0.9,
     )
     with pytest.raises((AttributeError, TypeError)):
-        chunk.chunk_id = "mutated"
+        chunk.chunk_id = "mutated"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# parse_guidelines tests (new — from brief)
+# ---------------------------------------------------------------------------
+
+def test_parse_produces_thirteen_figure_chunks_plus_counterparty_and_metrics():
+    chunks = parse_guidelines()
+    refs = {c.extracted_fields.get("limit_ref") for c in chunks if c.extracted_fields.get("limit_ref")}
+    assert refs == {
+        "allocation_sgs_limit", "allocation_mas_limit", "allocation_ig_limit",
+        "allocation_hy_limit", "allocation_fx_limit", "allocation_sc_limit",
+        "allocation_cash_limit", "non_ig_cap_limit", "corporate_issuer_limit",
+        "gre_issuer_limit", "liquidity_limit", "duration_limit", "dv01_limit",
+    }
+    rule_types = {c.extracted_fields["rule_type"] for c in chunks}
+    assert "counterparty_limit" in rule_types
+    assert "market_risk_metrics" in rule_types
+
+
+def test_sgs_chunk_has_correct_bounds_and_page():
+    chunks = parse_guidelines()
+    sgs = next(c for c in chunks if c.extracted_fields.get("limit_ref") == "allocation_sgs_limit")
+    assert sgs.extracted_fields["bounds"] == {"min_value": "0.20", "max_value": "0.60", "unit": "pct"}
+    assert sgs.page == 1
+    assert sgs.extraction_confidence >= 0.85
+
+
+def test_counterparty_chunk_is_low_confidence():
+    chunks = parse_guidelines()
+    cp = next(c for c in chunks if c.extracted_fields["rule_type"] == "counterparty_limit")
+    assert cp.extraction_confidence < 0.85
+
+
+def test_dv01_bounds():
+    chunks = parse_guidelines()
+    dv01 = next(c for c in chunks if c.extracted_fields.get("limit_ref") == "dv01_limit")
+    assert dv01.extracted_fields["bounds"] == {"cap_value": "85000", "unit": "sgd"}
+
+
+# ---------------------------------------------------------------------------
+# Golden snapshot regression test
+# ---------------------------------------------------------------------------
+
+def test_parse_matches_golden_snapshot():
+    fixture = os.path.join("tests", "fixtures", "parsed_guidelines.json")
+    with open(fixture) as f:
+        expected = json.load(f)
+    actual = [dataclasses.asdict(c) for c in parse_guidelines()]
+    assert actual == expected, "parser output drifted from golden snapshot (pdfplumber change?)"
