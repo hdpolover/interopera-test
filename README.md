@@ -240,7 +240,9 @@ assert logger.verify_chain()
 │   └── VERIFICATION.md              # Live verification results + requirements traceability
 ├── sample_docs/
 │   ├── sample_holdings.csv    # 13-row portfolio (input)
-│   └── firm_A_answer_key.xlsx # Expected Firm A figures (reconcile target)
+│   ├── firm_A_answer_key.xlsx # Expected Firm A figures (reconcile target)
+│   └── report_template.xlsx   # Brief-provided template (Section+Metric pre-filled);
+│                              #   system populates cols C–G and saves to out/report_*.xlsx
 ├── src/
 │   ├── cli/main.py            # Typer CLI — 13 subcommands
 │   ├── compute/               # Engine, config loader, primitives, registry

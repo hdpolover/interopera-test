@@ -70,6 +70,8 @@ This document records every significant design choice made in the InterOpera Com
 
 **Rationale:** The three knobs capture all behavioural differences between Firm A and Firm B. A new firm requires only a new YAML file. `extra="forbid"` catches typos in config keys immediately at load time (a misspelled key raises `ValidationError`) rather than silently using a default. `effective_config_hash()` (SHA-256 of the sorted JSON dump) is written into every audit event, making the exact config that produced each figure permanently traceable.
 
+**Firm C as generalization proof:** `config/firm_c.yaml` defines a third independent firm (`group_key: parent_issuer`, `utilization_format: truncated_bps`, `include_fallen_angels: false`) — a distinct knob combination from both A and B. Running `--firm C` produces 13 correct figures without any engine changes, proving that switching is not a coincidence of two-firm design.
+
 ---
 
 ### 6. Stub vs LLM Narrative Path
@@ -82,6 +84,19 @@ This document records every significant design choice made in the InterOpera Com
 - Mock LLM in tests — rejected because a mock bypasses the real firewall logic; the firewall's behavior would never be exercised in the test suite.
 
 **Rationale:** The stub path generates output that is firewall-safe by construction (all numbers come directly from `Figure` fields), making it suitable for deterministic testing and offline use. The LLM path exercises the real numeric token firewall in production, providing genuine containment validation. Both paths share the same `FirewallChecker` call, so the firewall is always the final gate regardless of which path produces the narrative.
+
+---
+
+### 6b. `evaluate` Always Uses Stub Narrator
+
+**Decision:** The `evaluate` CLI command hardcodes `api_key=None` when constructing `Narrator`, forcing the deterministic stub path regardless of whether `ANTHROPIC_API_KEY` is set.
+
+**Alternatives considered:**
+
+- Use the live LLM in `evaluate` the same way `narrate` does — rejected because `evaluate` is a Phase 5 verification command; its firewall check must be reproducible across runs and environments. An LLM can produce different tokens in each call, making the firewall result non-deterministic and therefore not verifiable.
+- Separate firewall-check command that doesn't call the narrator at all — rejected as added complexity; the stub provides a realistic narrative to check without variability.
+
+**Rationale:** The `narrate` command is for producing human-readable output — model quality matters there. The `evaluate` command is for verifying that the firewall works — determinism matters there. Using the stub in `evaluate` ensures the same narrative is produced on every invocation, so a PASS result is meaningful and repeatable.
 
 ---
 
@@ -281,6 +296,10 @@ This document records every significant design choice made in the InterOpera Com
 - `pandas.ExcelWriter` — wraps openpyxl but adds a pandas dependency not otherwise needed, and the abstraction makes per-row conditional formatting more verbose.
 
 **Rationale:** Cell-level styling — coloring each row red/amber/green based on figure status — requires per-cell `PatternFill` and `Font` control. openpyxl exposes the full OpenXML model, making this straightforward. No other part of the system requires pandas, so adding it purely for Excel output would be an unnecessary dependency.
+
+openpyxl's read-write capability is also required for the template pattern: `writer.py` opens `sample_docs/report_template.xlsx` (Section + Metric pre-filled by the brief), writes Value/Limit/Utilization/Status/Source into columns C–G, and saves to `out/report_{firm_id}.xlsx`. `xlsxwriter` is write-only and could not implement this pattern.
+
+**Template fallback:** If `report_template.xlsx` is not found (searching CWD and `/app`), `writer.py` falls back to generating a workbook from scratch with headers written by code. This ensures the report command never fails due to a missing template while still correctly populating the brief's template when present.
 
 ---
 

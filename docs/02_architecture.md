@@ -9,7 +9,7 @@ This document describes the module architecture of the compliance reporting syst
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        CLI (Typer)                          │
-│            src/cli/main.py  ·  src/cli/commands.py          │
+│   src/cli/main.py  ·  src/cli/commands/replay_helpers.py    │
 └───────────────────────────┬─────────────────────────────────┘
                             │
           ┌─────────────────▼──────────────────┐
@@ -43,9 +43,9 @@ This document describes the module architecture of the compliance reporting syst
          │           │           │
 ┌────────▼──┐  ┌─────▼──────┐  ┌▼────────────────────────┐
 │ Reconcile │  │   Report   │  │   Narrative (LLM)        │
-│           │  │  (xlsx)    │  │   narrative_writer.py    │
-│reconciler │  │report_     │  │                          │
-│   .py     │  │writer.py   │  │  ┌───────────────────┐   │
+│           │  │  (xlsx)    │  │   narrator.py            │
+│reconciler │  │ writer.py  │  │   (src/narrative/)       │
+│   .py     │  │            │  │  ┌───────────────────┐   │
 └────────┬──┘  └─────┬──────┘  │  │  Firewall Checker │   │
          │           │          │  │  checker.py       │   │
          │           │          │  └───────────────────┘   │
@@ -118,13 +118,13 @@ This document describes the module architecture of the compliance reporting syst
 
 ### Audit
 
-**Files:** `src/audit/emitter.py`, `src/audit/chain.py`, Postgres `audit_event` table
+**Files:** `src/audit/log.py`, Postgres `audit_event` table
 
 **Responsibility:** Record every significant pipeline event in an append-only, hash-chained log.
 
-- `emitter.py`: `emit_event(conn, event_type, payload, actor)` — inserts one row into `audit_event`. Computes `row_hash = sha256(json.dumps(payload, sort_keys=True) + prev_hash)`.
-- `chain.py`: `verify_chain(conn)` — re-derives all hashes in insertion order and asserts equality. Used in post-run integrity checks.
-- The table has no `UPDATE` or `DELETE` grants for the application role. Rows are immutable after insertion.
+- `log.py`: class `AuditLogger`. `log_event(event_type, actor, payload, config_hash)` — inserts one row into `audit_event`. Computes `row_hash = sha256(canonical_json + prev_hash)`.
+- `AuditLogger.verify_chain()` — re-derives all hashes in insertion order and asserts equality. Used by `show-audit-log --verify`.
+- The table has no `UPDATE` or `DELETE` grants for the application role. A `BEFORE UPDATE OR DELETE` trigger raises an exception for all connections, including superusers running ad-hoc SQL.
 - `retention_class` column: either `compliance` (long-term regulatory) or `operational` (short-term diagnostic).
 
 ---
@@ -146,16 +146,16 @@ This document describes the module architecture of the compliance reporting syst
 
 ### Report / Narrative / Firewall
 
-**Files:** `src/report/report_writer.py`, `src/report/narrative_writer.py`, `src/firewall/checker.py`
+**Files:** `src/report/writer.py`, `src/narrative/narrator.py`, `src/firewall/checker.py`
 
 **Responsibility:** Write the xlsx report, optionally generate narrative prose, and enforce the output firewall.
 
 **Report:**
-- `report_writer.py` receives `list[Figure]` only. Writes one row per Figure: figure_id, value, status, citation, graph_path. No narrative string is passed to this writer.
+- `writer.py` receives `list[Figure]` only. Loads `sample_docs/report_template.xlsx` (Section + Metric pre-filled by the brief) and writes Value, Limit, Utilization, Status, Source into columns C–G. Falls back to generating a scratch workbook if the template is not found. Saves to `out/report_{firm_id}.xlsx`.
 
 **Narrative (optional, LLM-powered):**
-- `narrative_writer.py` calls the LLM with a prompt that includes the Figure list as context.
-- Before the narrative is written to disk, `checker.py` scans it: every numeric token in the narrative must appear in the `value` set of the computed Figures. If any unrecognised number is found, the narrative is rejected and the audit event records `firewall_passed = False`.
+- `narrator.py` (in `src/narrative/`) calls the LLM with a prompt that includes the Figure list as context. When `ANTHROPIC_API_KEY` is absent, the deterministic stub path is used — no network call. Default model: `claude-sonnet-4-6`.
+- Before the narrative is returned, `checker.py` scans it: every numeric token must appear in the computed Figure set. If any unrecognised number is found, the check fails and the CLI reports `Firewall FAIL`.
 
 **Firewall:**
 - `src/firewall/checker.py` is the enforcement point for the output firewall.
@@ -163,7 +163,7 @@ This document describes the module architecture of the compliance reporting syst
 - Returns `(passed: bool, violations: list[str])`.
 - The firewall is one-directional: it reads numbers from Figures, never writes numbers back to Figures.
 
-**Audit events emitted:** `report_exported`, `narrative_generated`.
+**Audit events emitted:** `report_exported`. The `narrate` command does not emit an audit event.
 
 ---
 
@@ -207,14 +207,14 @@ This document describes the module architecture of the compliance reporting syst
 
 The following invariants are maintained by the architecture:
 
-1. **Numbers flow one direction.** A figure value is computed in `engine.py`, written to a `Figure` object, passed to `report_writer.py` (xlsx), passed to `reconciler.py` (comparison), and passed as read-only context to `checker.py` (firewall). No step in this path writes a value back to an upstream layer.
+1. **Numbers flow one direction.** A figure value is computed in `engine.py`, written to a `Figure` object, passed to `writer.py` (xlsx), passed to `reconciler.py` (comparison), and passed as read-only context to `checker.py` (firewall). No step in this path writes a value back to an upstream layer.
 
-2. **Prose and numbers have separate paths.** The narrative path (`narrative_writer.py` → LLM → `checker.py` → narrative file) is entirely separate from the number path (`engine.py` → `Figure` list → `report_writer.py` → xlsx). The two paths meet **only at the firewall** (`checker.py`), and even there the flow is one-directional: the firewall reads numbers from Figures to validate the prose; it never writes numbers back.
+2. **Prose and numbers have separate paths.** The narrative path (`narrator.py` → LLM → `checker.py` → narrative file) is entirely separate from the number path (`engine.py` → `Figure` list → `writer.py` → xlsx). The two paths meet **only at the firewall** (`checker.py`), and even there the flow is one-directional: the firewall reads numbers from Figures to validate the prose; it never writes numbers back.
 
 3. **The LLM is structurally incapable of touching a number.** This is not a policy statement enforced by convention — it is enforced by:
    - Static import gate: `src/compute/` has no LLM library imports (tested).
    - Dependency injection gate: `ComputeEngine.__init__` accepts no LLM client parameter.
-   - Report writer gate: `report_writer.py` accepts only `list[Figure]`, not a narrative string.
+   - Report writer gate: `writer.py` accepts only `list[Figure]`, not a narrative string.
    - Human-only approval gate: `approve_node()` requires an explicit human `actor` argument.
 
 ---
@@ -323,10 +323,10 @@ Each entry follows the format: **Decision → Alternatives considered → Ration
 
 ---
 
-### claude-haiku-4-5-20251001 for narrative generation
+### claude-sonnet-4-6 for narrative generation
 
-**Decision:** Use `claude-haiku-4-5-20251001` as the LLM for narrative prose generation.
+**Decision:** Use `claude-sonnet-4-6` as the default LLM for narrative prose generation. Override via `ANTHROPIC_MODEL` env var.
 
-**Alternatives:** Claude Sonnet; GPT-4o.
+**Alternatives:** `claude-haiku-4-5-20251001` (faster, cheaper, shallower output); GPT-4o (external vendor).
 
-**Rationale:** Narrative generation is prose-only — the LLM receives a list of pre-computed figures and writes sentences describing them. There are no multi-step reasoning chains, no tool use, and no structured data extraction; the task is text elaboration of known facts. Haiku is the fastest and lowest-cost Claude model, which matters for batch runs over many firm/period combinations. The output firewall (`checker.py`) enforces correctness independently of model capability — any number the LLM introduces that was not in the figure set causes the narrative to be rejected and re-generated, making model choice irrelevant to compliance accuracy. In environments where outbound traffic is firewalled, model selection is further constrained by network policy rather than capability preference.
+**Rationale:** Sonnet produces auditor-grade output — structured section headings, per-metric utilization citations, page references, and a summary compliance table. Haiku is functionally correct and ~3–5× cheaper but produces shorter, less structured narratives without page citations. The output firewall (`checker.py`) enforces numeric correctness independently of model choice; the decision is purely about prose quality. See `docs/DECISIONS.md §23` and `docs/model_comparison.md` for the full three-model comparison (Haiku / Sonnet / Opus 4.8).

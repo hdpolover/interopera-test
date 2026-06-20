@@ -139,7 +139,7 @@ The LLM is permitted to generate prose and summaries only. It is structurally in
 
 ## 4. Audit Event Catalogue
 
-All events are written to the `audit_event` table. Each row has: `event_id` (UUID), `event_type`, `run_id`, `actor` (system or human), `payload` (JSONB), `row_hash`, `created_at`.
+All events are written to the `audit_event` table. Each row has: `id` (SERIAL PRIMARY KEY), `event_type`, `run_id`, `actor` (system or human), `config_hash`, `payload` (JSONB), `row_hash`, `prev_hash`, `retention_class`, `ts` (TIMESTAMPTZ).
 
 These events are emitted by the live CLI pipeline on every real run (not only in tests).
 
@@ -161,8 +161,7 @@ Each audit event row carries a `retention_class` field (string enum). The value 
 | retention_class | Period | Description |
 |----------------|--------|-------------|
 | `compliance` | **Permanent** | Long-term, immutable, regulatory retention. These rows may never be deleted or modified. Used for all events that affect reported figures, node approvals, or reconciliation outcomes. |
-| `operational` | **7 years** (operational/transaction data) | Retained for operational diagnostics, still append-only. Used for events that do not directly affect regulatory outputs — e.g., config loads, narrative generation metadata. |
-| `investor_facing` | **10 years** | Investor-facing output events retained for 10 years per applicable regulation. |
+| `operational` | **7 years** (operational/transaction data) | Retained for operational diagnostics, still append-only. Used for events that do not directly affect regulatory outputs — e.g., config loads. |
 
 The `retention_class` field is set at event-emit time and stored in the `audit_event` row. It cannot be changed after insertion.
 

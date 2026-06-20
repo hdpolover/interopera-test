@@ -174,11 +174,8 @@ A regulator with access to the Neo4j database and the source PDF can reconstruct
 All 13 figure definitions, limit labels, aggregator assignments, and source bindings live in a shared `base.yaml`. Firm-specific files set **only** the three knobs that vary between firms; everything else is inherited via deep-merge.
 
 ```yaml
-# config/firms/base.yaml  — shared by all firms; knobs left unset
+# config/base.yaml  — shared by all firms; knobs left unset
 firm_id: ~                              # overridden by firm overlay
-answer_key_path: ~
-answer_key_format: xlsx
-tolerance: 0.0
 non_ig:
   include_fallen_angels: ~             # knob 1 — unset; must be overridden
 concentration:
@@ -186,33 +183,36 @@ concentration:
     group_key: ~                       # knob 2 — unset; must be overridden
 output:
   utilization_format: ~               # knob 3 — unset; must be overridden
-figures:
-  # all 13 figure definitions with limit/source bindings …
-  # (abbreviated for readability)
+# all 13 figure definitions with limit/source bindings live in base.yaml
+# (abbreviated for readability)
 ```
 
 ```yaml
-# config/firms/firm_a.yaml  — Firm A overlay (3 knobs only)
+# config/firm_a.yaml  — Firm A overlay (3 knobs only)
 firm_id: firm_a
-answer_key_path: data/firm_a_answer_key.xlsx
+
 non_ig:
   include_fallen_angels: false
+
 concentration:
   gre:
     group_key: issuer
+
 output:
   utilization_format: percent_1dp
 ```
 
 ```yaml
-# config/firms/firm_b.yaml  — Firm B overlay (3 knobs only)
+# config/firm_b.yaml  — Firm B overlay (3 knobs only)
 firm_id: firm_b
-answer_key_path: data/firm_b_answer_key.xlsx
+
 non_ig:
   include_fallen_angels: true
+
 concentration:
   gre:
     group_key: parent_issuer
+
 output:
   utilization_format: truncated_bps
 ```
@@ -225,11 +225,15 @@ effective = deep_merge(base, firm_overlay)
 
 All 13 figure definitions and limit/source bindings come from `base.yaml`. Only the three knobs listed above are touched by firm overlays.
 
-To onboard Firm B:
+Answer keys live in:
+- Firm A: `sample_docs/firm_A_answer_key.xlsx` (XLSX, loaded by `reconciler.py`)
+- Firm B: `config/firm_b_expected.yaml` (YAML, loaded by `reconciler.py`)
 
-1. Create `config/firms/firm_b.yaml` (three knobs only, as shown above).
-2. Supply `data/firm_b_answer_key.xlsx`.
-3. Run: `python -m src.cli.main run --firm firm_b --holdings data/firm_b_holdings.csv --guidelines data/firm_b_guidelines.pdf`
+To onboard a new firm:
+
+1. Create `config/firm_{x}.yaml` (three knobs only, as shown above).
+2. Supply the answer key in XLSX or YAML format.
+3. Run: `python -m src.cli.main run --firm X`
 
 No code changes required. The `config_loader.py` hashes the resolved effective config. The hash is stored in every audit event (`config_hash`) so the exact config version used for a run is permanently recorded.
 
