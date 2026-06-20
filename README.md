@@ -42,6 +42,44 @@ If host ports 5432 or 7687 are already taken, set overrides in a `.env` file (se
 
 ---
 
+## `fundra` — Short-Form CLI
+
+> **Skip typing `docker compose run --rm app python -m src.cli.main ...` every time.**
+
+`bin/fundra` is a thin shell wrapper that forwards all arguments to the CLI inside the
+container. One-time setup:
+
+```bash
+# Add to ~/.zshrc (or ~/.bashrc)
+export PATH="/path/to/interopera-test/bin:$PATH"
+
+# Reload
+source ~/.zshrc
+```
+
+After that, from **any directory**:
+
+```bash
+fundra --help
+fundra build-graph
+fundra verify-graph --approve-all
+fundra run --firm A
+fundra run --firm B
+fundra evaluate --firm A
+fundra evaluate --firm B
+fundra narrate --firm A
+fundra verify-determinism --firm A
+fundra show-audit-log --last 20 --verify
+fundra query-metric --all
+fundra replay --figure allocation_cash --firm A
+fundra generate-dsl --firm A
+```
+
+> **Prerequisite:** services must be running — `docker compose up -d` or `make up` once
+> before using `fundra`. The wrapper does not start services automatically.
+
+---
+
 ## Running Both Firms
 
 No code changes are required to switch firms. The entire behavioural difference lives in
@@ -80,7 +118,13 @@ Firm C is a third independent configuration — distinct knob combination from b
 
 ## CLI Reference
 
-All subcommands are invoked as:
+With `fundra` installed (see above):
+
+```bash
+fundra <subcommand> [options]
+```
+
+Or the full form without the wrapper:
 
 ```bash
 docker compose run --rm app python -m src.cli.main <subcommand> [options]
@@ -252,6 +296,8 @@ assert logger.verify_chain()
 │   ├── narrative/             # Narrative writer (LLM-optional stub)
 │   ├── reconcile/             # Reconciler against answer keys
 │   └── report/                # xlsx report writer
+├── bin/
+│   └── fundra                 # Shell wrapper — use instead of full docker compose run
 ├── tests/                     # Full test suite (315 tests across 20 files)
 ├── docker-compose.yml
 ├── init.sql                   # Postgres schema + append-only trigger
