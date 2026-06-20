@@ -115,14 +115,14 @@ This document records every significant design choice made in the InterOpera Com
 
 ### 8. Content-Hash Chunk IDs
 
-**Decision:** `SourceChunk` nodes are keyed by `sha256(text)[:8]` — a content-derived identifier truncated to 8 hex characters.
+**Decision:** `SourceChunk` nodes are keyed by `sha256(text)[:16]` — a content-derived identifier truncated to 16 hex characters.
 
 **Alternatives considered:**
 
 - Sequential IDs (1, 2, 3, ...) — rejected because they are not stable across re-ingestion runs; the same chunk loaded twice gets a different ID, breaking idempotency and creating duplicate nodes.
 - UUID (random) — rejected for the same reason; a random ID on each run means re-ingesting a document creates new nodes instead of merging with existing ones.
 
-**Rationale:** A content hash is deterministic: the same chunk text always produces the same ID, so `MERGE` on `chunk_id` correctly deduplicates re-ingested content. The 8-character truncation is a pragmatic trade-off — full SHA-256 is unnecessarily long for a node key, and 8 hex chars (32 bits) has negligible collision probability for the document corpus sizes in scope. The hash also acts as a change detector: if a chunk's text is revised, its ID changes and a new node is created while the old one is preserved.
+**Rationale:** A content hash is deterministic: the same chunk text always produces the same ID, so `MERGE` on `chunk_id` correctly deduplicates re-ingested content. The 16-character truncation is a pragmatic trade-off — full SHA-256 is unnecessarily long for a node key, and 16 hex chars (64 bits) has negligible collision probability for the document corpus sizes in scope. The hash also acts as a change detector: if a chunk's text is revised, its ID changes and a new node is created while the old one is preserved.
 
 ---
 

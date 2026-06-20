@@ -23,7 +23,7 @@ This report documents live verification of the InterOpera fund compliance report
 |---|---|---|---|
 | **C1 — Reproducibility** | Identical inputs → identical figure values on every run | `Decimal` arithmetic, `ORDER BY p.instrument_id` on all queries, `verify-determinism` CLI command | **PASS** |
 | **C2 — Traceability** | Every figure must carry `graph_path` + `citation` (source_doc, page, chunk_id, passage_summary) | `ComputeEngine._get_citation()` traverses `(Limit)-[:DERIVED_FROM]->(SourceChunk)`; `_build_graph_path()` builds Cypher-style strings from actual traversal | **PASS** |
-| **C3 — No LLM Numbers** | LLM writes narrative prose only; cannot write to report cells | 6-gate LLM containment (static import gate, DI gate, report-from-figures-only gate, human-only approval gate, reconcile gate, firewall gate) | **PASS** |
+| **C3 — No LLM Numbers** | LLM writes narrative prose only; cannot write to report cells | 6-gate LLM containment (1 static import, 2 DI, 3 report-from-figures-only, 4 output firewall, 5 human-only approval, 6 pure-code Phase 5) — see RFC §4 | **PASS** |
 | **C4 — Reconcile Firm A** | System must produce figures matching Firm A answer key exactly | `src/reconcile/reconciler.py`; 13/13 PASS verified live | **PASS** |
 | **C5 — Firm B Config-Only** | Onboard Firm B without code changes, using only YAML config | `config/firm_b.yaml` (3 knobs); 13/13 Firm B PASS verified live | **PASS** |
 | **C5 — utilization format** | Firm B renders utilization in truncated bps (`5833 bps`) not percent (`58.3%`) | `output.utilization_format: truncated_bps` in `firm_b.yaml`; `test_engine_firm_b.py` asserts `"5833 bps"` for SGS utilization | **PASS** |
@@ -34,8 +34,8 @@ This report documents live verification of the InterOpera fund compliance report
 | Phase | Requirement | File(s) | Status |
 |---|---|---|---|
 | **Phase 1 — Ingest** | Parse holdings CSV → PositionRecord | `src/ingestion/holdings_parser.py` | **PASS** |
-| **Phase 1 — Ingest** | Parse guidelines PDF → RuleChunk (stub or LLM) | `src/ingestion/guidelines_parser.py` | **PASS** |
-| **Phase 1 — Ingest** | content-hash chunk_id = sha256(text)[:8] | `guidelines_parser.py:chunk_id_from_text()` | **PASS** |
+| **Phase 1 — Ingest** | Guidelines → RuleChunk (deterministic transcription or LLM) | `src/ingestion/guidelines_parser.py` | **PASS** |
+| **Phase 1 — Ingest** | content-hash chunk_id = sha256(text)[:16] | `guidelines_parser.py:chunk_id_from_text()` | **PASS** |
 | **Phase 2 — Graph** | Neo4j with Position, AssetClass, Issuer, ParentIssuer, Aggregate, SourceChunk, Limit nodes | `src/graph/builder.py:load_positions()`, `load_rules()` | **PASS** |
 | **Phase 2 — Graph** | RiskMetric, Threshold, BreachAction, Owner nodes | `src/graph/builder.py:load_risk_metrics()` | **PASS** |
 | **Phase 2 — Graph** | All 11 node types present after `build-graph` | Live node count (below) | **PASS** |
