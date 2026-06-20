@@ -2,4 +2,4 @@
 # Thin wrapper — resolves repo root from the script location so the command
 # works from any directory, not just the repo root.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$REPO" && docker compose --progress quiet run --rm app python -m src.cli.main "$@"
+cd "$REPO" && DOCKER_CLI_HINTS=false docker compose --progress quiet run --rm app python -m src.cli.main "$@"
