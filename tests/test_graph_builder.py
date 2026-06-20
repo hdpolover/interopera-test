@@ -315,23 +315,28 @@ def test_contributes_to_edges_for_non_ig(driver):
 
 
 def test_distinct_source_chunk_per_rule_area(driver, sample_chunks):
-    """I-4: Two different rule-area Limits must reach SourceChunks with distinct chunk_ids."""
+    """I-4: Two different rule-area Limits must reach SourceChunks with distinct chunk_ids.
+
+    After Task 7, each allocation_limit chunk has its own limit_ref (e.g. allocation_sgs_limit)
+    so there are multiple Limit nodes with rule_type='allocation_limit'. We pick one
+    representative by ref and compare its SourceChunk against the liquidity_limit.
+    """
     from src.graph.schema import apply_schema
     from src.graph.builder import load_rules
     apply_schema(driver)
     load_rules(driver, sample_chunks)
 
     with driver.session() as session:
-        # Fetch chunk_id for allocation_limit Limit
+        # Use the canonical SGS allocation limit as the representative allocation_limit Limit
         result = session.run(
             """
-            MATCH (l:Limit {rule_type: 'allocation_limit'})-[:DERIVED_FROM]->(sc:SourceChunk)
+            MATCH (l:Limit {ref: 'allocation_sgs_limit'})-[:DERIVED_FROM]->(sc:SourceChunk)
             RETURN sc.chunk_id AS chunk_id
             """
         )
         alloc_record = result.single()
 
-        # Fetch chunk_id for liquidity_requirement Limit
+        # Fetch chunk_id for liquidity_requirement Limit (keyed by limit_ref='liquidity_limit')
         result = session.run(
             """
             MATCH (l:Limit {rule_type: 'liquidity_requirement'})-[:DERIVED_FROM]->(sc:SourceChunk)
@@ -340,10 +345,10 @@ def test_distinct_source_chunk_per_rule_area(driver, sample_chunks):
         )
         liquid_record = result.single()
 
-    assert alloc_record is not None, "allocation_limit Limit -> SourceChunk not found"
+    assert alloc_record is not None, "allocation_sgs_limit Limit -> SourceChunk not found"
     assert liquid_record is not None, "liquidity_requirement Limit -> SourceChunk not found"
     assert alloc_record["chunk_id"] != liquid_record["chunk_id"], (
-        "allocation_limit and liquidity_requirement must have DIFFERENT chunk_ids, "
+        "allocation_sgs_limit and liquidity_requirement must have DIFFERENT chunk_ids, "
         f"got both = '{alloc_record['chunk_id']}'"
     )
 
@@ -608,6 +613,32 @@ def test_threshold_key_constraint_present(driver):
     with driver.session() as session:
         names = [r["name"] for r in session.run("SHOW CONSTRAINTS YIELD name RETURN name")]
     assert any("threshold" in (n or "").lower() for n in names)
+
+
+def test_limit_has_threshold_with_bounds(driver, sample_chunks):
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_rules
+    apply_schema(driver)
+    load_rules(driver, sample_chunks)
+    with driver.session() as session:
+        rec = session.run(
+            "MATCH (l:Limit {ref:'allocation_sgs_limit'})-[:HAS_THRESHOLD]->(t:Threshold) "
+            "RETURN t.min_value AS mn, t.max_value AS mx, t.unit AS unit"
+        ).single()
+    assert rec["mn"] == "0.20" and rec["mx"] == "0.60" and rec["unit"] == "pct"
+
+
+def test_low_confidence_counterparty_limit_is_pending(driver, sample_chunks):
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_rules
+    apply_schema(driver)
+    load_rules(driver, sample_chunks)
+    with driver.session() as session:
+        cnt = session.run(
+            "MATCH (l:Limit {rule_type:'counterparty_limit'}) WHERE l.status='PENDING_REVIEW' "
+            "RETURN count(l) AS c"
+        ).single()["c"]
+    assert cnt == 1
 
 
 def test_single_ingested_at_consistent_across_loaders(driver, sample_positions, sample_chunks):
