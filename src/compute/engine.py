@@ -17,62 +17,7 @@ from src.compute.primitives import (
 from src.compute.registry import FIGURE_REGISTRY, Figure, FigureSpec
 from src.graph import queries
 from src.graph.constants import ASSET_CLASS_SLUG as _ASSET_CLASS_SLUG
-
-def _build_limit_bounds(limits: dict[str, Any]) -> dict[str, dict[str, Decimal]]:
-    """Normalize config.limits dict to engine-internal {figure_id: {min/max/cap/floor: Decimal}}.
-
-    Config shape → engine key mapping:
-      min_pct / min_years  → "min"
-      max_pct / max_years  → "max"
-      max_sgd              → "cap"
-    When only min_pct is present (no max_pct), the figure uses a floor comparator → "floor".
-    When only max_pct is present (no min_pct), the figure uses a cap comparator → "cap".
-    """
-    required_figure_ids = {
-        "allocation_sgs", "allocation_mas_bills", "allocation_ig_corp",
-        "allocation_high_yield", "allocation_fx_bonds", "allocation_structured_credit",
-        "allocation_cash", "aggregate_non_ig_exposure", "largest_single_corporate_issuer",
-        "largest_gre_issuer", "liquid_assets_ratio", "portfolio_duration", "portfolio_dv01",
-    }
-    missing = required_figure_ids - set(limits.keys())
-    if missing:
-        raise ValueError(f"config.limits missing required figure keys: {sorted(missing)}")
-
-    result: dict[str, dict[str, Decimal]] = {}
-    for fig_id, raw in limits.items():
-        bounds: dict[str, Decimal] = {}
-        if "min_pct" in raw and "max_pct" in raw:
-            bounds["min"] = Decimal(str(raw["min_pct"]))
-            bounds["max"] = Decimal(str(raw["max_pct"]))
-        elif "min_years" in raw and "max_years" in raw:
-            bounds["min"] = Decimal(str(raw["min_years"]))
-            bounds["max"] = Decimal(str(raw["max_years"]))
-        elif "min_pct" in raw:
-            bounds["floor"] = Decimal(str(raw["min_pct"]))
-        elif "max_pct" in raw:
-            bounds["cap"] = Decimal(str(raw["max_pct"]))
-        elif "max_sgd" in raw:
-            bounds["cap"] = Decimal(str(raw["max_sgd"]))
-        result[fig_id] = bounds
-    return result
-
-# Maps each figure id to the actual rule_type stored on SourceChunk nodes.
-# These must match the rule_type values produced by guidelines_parser.py's _STUB_PASSAGES.
-_FIGURE_RULE_TYPE: dict[str, str] = {
-    "allocation_sgs":                   "allocation_limit",
-    "allocation_mas_bills":             "allocation_limit",
-    "allocation_ig_corp":               "allocation_limit",
-    "allocation_high_yield":            "allocation_limit",
-    "allocation_fx_bonds":              "allocation_limit",
-    "allocation_structured_credit":     "allocation_limit",
-    "allocation_cash":                  "allocation_limit",
-    "aggregate_non_ig_exposure":        "non_ig_cap",
-    "largest_single_corporate_issuer":  "concentration_limit",
-    "largest_gre_issuer":               "concentration_limit",
-    "liquid_assets_ratio":              "liquidity_requirement",
-    "portfolio_duration":               "duration_limit",
-    "portfolio_dv01":                   "dv01_limit",
-}
+from src.graph.queries import limit_bounds_for_ref
 
 
 class ComputeEngine:
@@ -82,7 +27,6 @@ class ComputeEngine:
         self._driver = driver
         self._config = config
         self._nav: Decimal | None = None
-        self._limit_bounds: dict[str, dict[str, Decimal]] = _build_limit_bounds(config.limits)
 
     def _get_nav(self) -> Decimal:
         """Compute NAV once per run."""
@@ -90,6 +34,29 @@ class ComputeEngine:
             all_pos = queries.all_positions(self._driver)
             self._nav = nav(all_pos)
         return self._nav
+
+    def _bounds(self, spec: FigureSpec) -> dict[str, Decimal]:
+        """Resolve this figure's comparator bounds from the graph Threshold.
+
+        Traversal: (Limit {ref: spec.limit_ref})-[:HAS_THRESHOLD]->(Threshold)
+        Maps Threshold property keys to the comparator keys used internally:
+          min_value  → min
+          max_value  → max
+          cap_value  → cap
+          floor_value → floor
+        Returns empty dict when no Threshold is reachable (caller handles gracefully).
+        """
+        raw = limit_bounds_for_ref(self._driver, spec.limit_ref)
+        out: dict[str, Decimal] = {}
+        if "min_value" in raw:
+            out["min"] = raw["min_value"]
+        if "max_value" in raw:
+            out["max"] = raw["max_value"]
+        if "cap_value" in raw:
+            out["cap"] = raw["cap_value"]
+        if "floor_value" in raw:
+            out["floor"] = raw["floor_value"]
+        return out
 
     def _get_positions(self, spec: FigureSpec) -> list[dict]:
         """Fetch positions based on selector and predicate."""
@@ -173,7 +140,7 @@ class ComputeEngine:
     def _apply_comparator(self, spec: FigureSpec, value: Decimal) -> str:
         """Apply comparator to produce OK/BREACH/AT LIMIT."""
         comp = spec.comparator
-        bounds = self._limit_bounds.get(spec.id, {})
+        bounds = self._bounds(spec)
 
         if comp == "within_min_max":
             return within_min_max(value, bounds["min"], bounds["max"])
@@ -197,7 +164,7 @@ class ComputeEngine:
     def _compute_utilization(self, spec: FigureSpec, value: Decimal) -> str:
         """Compute utilization string based on utilization_basis and config format."""
         basis = spec.utilization_basis
-        bounds = self._limit_bounds.get(spec.id, {})
+        bounds = self._bounds(spec)
         util_fmt = self._config.output.utilization_format
 
         if basis == "none":
@@ -307,24 +274,24 @@ class ComputeEngine:
     def _get_citation(self, spec: FigureSpec) -> dict | None:
         """Return citation from the SourceChunk node reachable via this figure's Limit node.
 
-        Traversal: (Limit {rule_type})-[:DERIVED_FROM]->(SourceChunk)
-        The Limit.rule_type property is set by builder.load_rules from extracted_fields.
+        Traversal: (Limit {ref: spec.limit_ref})-[:DERIVED_FROM]->(SourceChunk)
+        Each figure has a unique limit_ref so citations are per-figure, not per-rule-type.
 
         Returns None when no SourceChunk is reachable (missing or broken DERIVED_FROM edge).
         The caller (compute_figure) must treat None as an unresolvable citation and return
         Figure(status="ERROR") — a figure that cannot be traced to a source document is not
         safe to emit as a numeric value.
         """
-        rule_type = _FIGURE_RULE_TYPE.get(spec.id, "")
-        # Guard: if rule_type is empty (falsy), we have no rule anchor to cite.
+        limit_ref = spec.limit_ref
+        # Guard: if limit_ref is empty, we have no rule anchor to cite.
         # Return None so that the caller's missing-citation→ERROR path fires,
         # rather than returning a random VERIFIED SourceChunk unrelated to this figure.
-        if not rule_type:
+        if not limit_ref:
             return None
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (l:Limit {rule_type: $rule_type})-[:DERIVED_FROM]->(sc:SourceChunk)
+                MATCH (l:Limit {ref: $ref})-[:DERIVED_FROM]->(sc:SourceChunk)
                 WHERE sc.status = 'VERIFIED'
                 RETURN sc.chunk_id AS chunk_id,
                        sc.source_doc AS source_doc,
@@ -332,7 +299,7 @@ class ComputeEngine:
                        sc.passage_summary AS passage_summary
                 LIMIT 1
                 """,
-                rule_type=rule_type,
+                ref=limit_ref,
             )
             record = result.single()
             if record:
@@ -347,21 +314,20 @@ class ComputeEngine:
     def _check_limit_node_pending(self, spec: FigureSpec) -> bool:
         """Return True if the anchor Limit node for this figure is PENDING_REVIEW.
 
-        Limit nodes are keyed by ref = '{rule_type}_{chunk_id}'.  We match on
-        the Limit.rule_type property (which equals the chunk's extracted rule_type)
-        to find limit nodes anchoring this figure type.
+        Limit nodes are keyed by ref (spec.limit_ref). We match directly on
+        the Limit.ref property to find the specific limit node for this figure.
         """
-        rule_type = _FIGURE_RULE_TYPE.get(spec.id, "")
-        if not rule_type:
+        limit_ref = spec.limit_ref
+        if not limit_ref:
             return False
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (l:Limit {rule_type: $rule_type})
+                MATCH (l:Limit {ref: $ref})
                 WHERE l.status = 'PENDING_REVIEW'
                 RETURN count(l) AS cnt
                 """,
-                rule_type=rule_type,
+                ref=limit_ref,
             )
             record = result.single()
             return bool(record and record["cnt"] > 0)
