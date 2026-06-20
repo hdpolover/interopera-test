@@ -5,6 +5,7 @@ No LLM imports. All numeric outputs use decimal.Decimal.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from decimal import Decimal
 
 _PCT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
@@ -39,3 +40,61 @@ def year_range(cell: str) -> tuple[Decimal, Decimal] | None:
     if len(nums) < 2:
         return None
     return Decimal(nums[0]), Decimal(nums[1])
+
+
+# ---------------------------------------------------------------------------
+# Allocation table extractor
+# ---------------------------------------------------------------------------
+
+# Canonical asset-class names keyed by a distinctive prefix found in the raw cell.
+_ALLOC_CANON: tuple[tuple[str, str], ...] = (
+    ("Singapore Government Securities", "Singapore Government Securities"),
+    ("MAS Bills", "MAS Bills"),
+    ("Investment Grade Corporate Bonds", "Investment Grade Corporate Bonds"),
+    ("High Yield Bonds", "High Yield Bonds"),
+    ("Foreign Currency Bonds", "Foreign Currency Bonds"),
+    ("Structured Credit", "Structured Credit"),
+    ("Cash & Cash Equivalents", "Cash & Cash Equivalents"),
+)
+
+
+@dataclass(frozen=True)
+class AllocationRow:
+    asset_class: str
+    min_frac: Decimal | None
+    max_frac: Decimal | None
+    page: int
+
+
+def _canon_asset_class(raw: str) -> str | None:
+    norm = normalize_ws(raw)
+    for prefix, canon in _ALLOC_CANON:
+        if norm.startswith(prefix):
+            return canon
+    return None
+
+
+def extract_allocations(pdf) -> list[AllocationRow]:
+    """Merge the Section 2 allocation table across pages 1-2 into 7 canonical rows.
+
+    The table fragments are detected by row shape (4 cells, first cell is a known
+    asset class, second cell contains a percentage). Header rows are skipped.
+    """
+    rows: list[AllocationRow] = []
+    for page_idx, page in enumerate(pdf.pages, start=1):
+        for table in page.extract_tables():
+            for cells in table:
+                if not cells or len(cells) < 3:
+                    continue
+                canon = _canon_asset_class(cells[0] or "")
+                if canon is None:
+                    continue
+                rows.append(
+                    AllocationRow(
+                        asset_class=canon,
+                        min_frac=pct_fraction(cells[1] or ""),
+                        max_frac=pct_fraction(cells[2] or ""),
+                        page=page_idx,
+                    )
+                )
+    return rows
