@@ -324,3 +324,144 @@ def test_verify_chain_detects_actor_tamper(logger):
     assert logger.verify_chain() is False, (
         "verify_chain() must detect actor tampering — actor is now part of the hash input"
     )
+
+
+# ---------------------------------------------------------------------------
+# BUG 1 — _verify_rows: chain-link enforcement (pure unit tests, no DB)
+# ---------------------------------------------------------------------------
+
+
+def _build_valid_chain(n: int = 3) -> list[tuple]:
+    """Build a correctly-linked chain of n rows for testing _verify_rows."""
+    import hashlib
+    import json
+
+    GENESIS = "genesis"
+    rows: list[tuple] = []
+    prev = GENESIS
+    for i in range(n):
+        event_type = "figure_computed"
+        actor = "system"
+        config_hash = None
+        payload = {"index": i}
+        canonical = json.dumps(
+            {
+                "event_type": event_type,
+                "actor": actor,
+                "config_hash": config_hash,
+                "payload": payload,
+            },
+            sort_keys=True,
+            default=str,
+        )
+        row_hash = hashlib.sha256((canonical + prev).encode()).hexdigest()
+        rows.append((event_type, actor, config_hash, payload, prev, row_hash))
+        prev = row_hash
+    return rows
+
+
+def test_verify_rows_returns_true_for_valid_chain():
+    """_verify_rows returns True for a correctly-linked chain."""
+    from src.audit.log import AuditLogger
+
+    rows = _build_valid_chain(3)
+    assert AuditLogger._verify_rows(rows) is True
+
+
+def test_verify_rows_returns_false_for_broken_chain_link():
+    """_verify_rows returns False when row N's prev_hash does not equal row N-1's row_hash.
+
+    This is the CRITICAL bug: the old verify_chain() only checked each row's own
+    hash was self-consistent, but never verified the chain link between rows.
+    A forged sequence where row 2's prev_hash is swapped to something other than
+    row 1's row_hash — but row 2 is otherwise internally self-consistent — MUST
+    be rejected by the fixed code.
+    """
+    import hashlib
+    import json
+
+    from src.audit.log import AuditLogger
+
+    # Build a valid 3-row chain first.
+    rows = list(_build_valid_chain(3))
+
+    # Forge row 2 (index 1): swap its prev_hash to an arbitrary value but
+    # recompute its row_hash so the row is internally self-consistent.
+    # Row 1 (index 0) still has its original row_hash, so the link is broken.
+    event_type, actor, config_hash, payload, _orig_prev, _orig_row_hash = rows[1]
+    forged_prev = "a" * 64  # arbitrary valid-looking hash, NOT row 0's row_hash
+    canonical = json.dumps(
+        {
+            "event_type": event_type,
+            "actor": actor,
+            "config_hash": config_hash,
+            "payload": payload,
+        },
+        sort_keys=True,
+        default=str,
+    )
+    forged_row_hash = hashlib.sha256((canonical + forged_prev).encode()).hexdigest()
+    rows[1] = (event_type, actor, config_hash, payload, forged_prev, forged_row_hash)
+
+    # The old code would PASS this because each row's computed hash matches its
+    # stored_hash. The fixed _verify_rows must return False because the link is broken.
+    assert AuditLogger._verify_rows(rows) is False, (
+        "_verify_rows must detect that row 2's prev_hash does not match row 1's row_hash"
+    )
+
+
+def test_verify_rows_empty_chain_returns_true():
+    """_verify_rows returns True for an empty chain (nothing to verify)."""
+    from src.audit.log import AuditLogger
+
+    assert AuditLogger._verify_rows([]) is True
+
+
+def test_verify_rows_detects_tampered_row_hash():
+    """_verify_rows returns False when a row's stored_hash is corrupted."""
+    from src.audit.log import AuditLogger
+
+    rows = list(_build_valid_chain(2))
+    # Corrupt the stored_hash of the first row without changing anything else.
+    et, ac, ch, pl, pv, _ = rows[0]
+    rows[0] = (et, ac, ch, pl, pv, "dead" * 16)  # 64-char garbage
+    assert AuditLogger._verify_rows(rows) is False
+
+
+# ---------------------------------------------------------------------------
+# BUG 3 — list_events: SQL-level LIMIT (DB required)
+# ---------------------------------------------------------------------------
+
+
+def test_list_events_uses_sql_limit(logger):
+    """list_events returns the last `limit` rows in ascending order without
+    fetching the full table — verified by inserting more rows than the limit
+    and checking the returned ids are the most recent ones."""
+    import psycopg
+
+    # Insert 5 rows, then ask for limit=3 — expect the last 3 in asc order.
+    run_id = str(__import__("uuid").uuid4())
+    for i in range(5):
+        logger.log_event(
+            run_id=run_id,
+            event_type="figure_computed",
+            actor="system",
+            payload={"index": i},
+        )
+
+    events = logger.list_events(limit=3)
+    assert len(events) == 3
+
+    # The returned events must be in ascending id order.
+    ids = [e["id"] for e in events]
+    assert ids == sorted(ids), "list_events must return events in ascending id order"
+
+    # They must be the LAST 3 rows (highest ids).
+    with psycopg.connect(PG_DSN) as conn:
+        all_ids = [
+            r[0]
+            for r in conn.execute(
+                "SELECT id FROM audit_event ORDER BY id ASC"
+            ).fetchall()
+        ]
+    assert ids == all_ids[-3:], "list_events must return the most-recent rows"
