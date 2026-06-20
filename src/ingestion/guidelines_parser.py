@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-@dataclass
+@dataclass(frozen=True)
 class RuleChunk:
     chunk_id: str
     source_doc: str
@@ -20,9 +20,12 @@ class RuleChunk:
     extraction_confidence: float
 
 
+_MIN_PARAGRAPH_CHARS: int = 30  # Paragraphs shorter than this are too sparse to extract rules from.
+
+
 def chunk_id_from_text(text: str) -> str:
-    """Return sha256 of text, first 8 hex chars."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+    """Return sha256 of text, first 16 hex chars."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 # Deterministic stub passages for the 6 known rule types.
@@ -197,11 +200,13 @@ def parse_guidelines(pdf_path: str | None, llm_client: object | None = None) -> 
     if llm_client is None or pdf_path is None:
         return _make_stub_chunks()
 
-    # LLM-assisted extraction path (when api key is available)
+    # LLM-assisted extraction path (when both pdf_path and llm_client are provided)
     try:
         import pdfplumber
-    except ImportError:
-        return _make_stub_chunks()
+    except ImportError as exc:
+        raise ImportError(
+            "pdfplumber is required for PDF extraction. Install it with: pip install pdfplumber"
+        ) from exc
 
     chunks: list[RuleChunk] = []
     with pdfplumber.open(pdf_path) as pdf:
@@ -212,7 +217,7 @@ def parse_guidelines(pdf_path: str | None, llm_client: object | None = None) -> 
             # Split into paragraphs
             paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
             for para in paragraphs:
-                if len(para) < 30:
+                if len(para) < _MIN_PARAGRAPH_CHARS:
                     continue
                 # Call LLM to extract structured fields and confidence
                 result = llm_client.extract_rule(para)  # type: ignore[attr-defined]
@@ -229,4 +234,9 @@ def parse_guidelines(pdf_path: str | None, llm_client: object | None = None) -> 
                         extraction_confidence=float(result.get("confidence", 0.5)),
                     )
                 )
-    return chunks if chunks else _make_stub_chunks()
+    if not chunks:
+        raise ValueError(
+            f"PDF '{pdf_path}' was parsed but LLM extraction yielded no rule chunks. "
+            "Check that the PDF contains recognisable rule text and that the LLM client is working."
+        )
+    return chunks
