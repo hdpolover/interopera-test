@@ -602,6 +602,14 @@ def test_load_positions_accepts_external_ingested_at(driver, sample_positions):
     )
 
 
+def test_threshold_key_constraint_present(driver):
+    from src.graph.schema import apply_schema
+    apply_schema(driver)
+    with driver.session() as session:
+        names = [r["name"] for r in session.run("SHOW CONSTRAINTS YIELD name RETURN name")]
+    assert any("threshold" in (n or "").lower() for n in names)
+
+
 def test_single_ingested_at_consistent_across_loaders(driver, sample_positions, sample_chunks):
     """When all three loaders receive the same ingested_at, every node carries that value.
 

@@ -289,8 +289,9 @@ def load_risk_metrics(
             # Threshold node + HAS_THRESHOLD edge
             session.run(
                 """
-                MERGE (t:Threshold {metric: $metric})
-                SET t.limit_value            = $limit_value,
+                MERGE (t:Threshold {key: $metric})
+                SET t.metric                 = $metric,
+                    t.limit_value            = $limit_value,
                     t.source_doc             = $source_doc,
                     t.page                   = $page,
                     t.chunk_id               = $chunk_id,
@@ -303,7 +304,7 @@ def load_risk_metrics(
             session.run(
                 """
                 MATCH (rm:RiskMetric {metric: $metric})
-                MATCH (t:Threshold {metric: $metric})
+                MATCH (t:Threshold {key: $metric})
                 MERGE (rm)-[r:HAS_THRESHOLD]->(t)
                 SET r.source_doc            = $source_doc,
                     r.ingested_at           = $ingested_at,
