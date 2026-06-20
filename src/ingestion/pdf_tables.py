@@ -74,6 +74,63 @@ def _canon_asset_class(raw: str) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Risk-metrics table extractor (Section 3.1)
+# ---------------------------------------------------------------------------
+
+_RISK_LABELS = (
+    "Modified Duration",
+    "Portfolio DV01",
+    "Value-at-Risk",
+    "Expected Shortfall",
+    "Interest Rate Sensitivity",
+    "Tracking Error",
+)
+
+
+def extract_risk_metrics(pdf) -> dict[str, dict]:
+    """Return the 6 Section 3.1 market-risk rows keyed by metric label."""
+    out: dict[str, dict] = {}
+    for page_idx, page in enumerate(pdf.pages, start=1):
+        for table in page.extract_tables():
+            for cells in table:
+                if not cells:
+                    continue
+                label = normalize_ws(cells[0] or "")
+                match = next((lbl for lbl in _RISK_LABELS if label.startswith(lbl)), None)
+                if match is None:
+                    continue
+                out[match] = {
+                    "limit_text": normalize_ws(cells[1] if len(cells) > 1 else ""),
+                    "monitoring": normalize_ws(cells[2] if len(cells) > 2 else ""),
+                    "breach_action": normalize_ws(cells[3] if len(cells) > 3 else ""),
+                    "page": page_idx,
+                }
+    return out
+
+
+def duration_bounds(pdf) -> tuple[Decimal, Decimal, int]:
+    """Return (min_years, max_years, page) for Modified Duration."""
+    m = extract_risk_metrics(pdf)["Modified Duration"]
+    rng = year_range(m["limit_text"])
+    if rng is None:
+        raise ValueError(f"could not parse duration band from {m['limit_text']!r}")
+    return rng[0], rng[1], m["page"]
+
+
+def dv01_cap(pdf) -> tuple[Decimal, int]:
+    """Return (cap_sgd, page) for Portfolio DV01."""
+    m = extract_risk_metrics(pdf)["Portfolio DV01"]
+    cap = sgd_int(m["limit_text"])
+    if cap is None:
+        raise ValueError(f"could not parse DV01 cap from {m['limit_text']!r}")
+    return cap, m["page"]
+
+
+# ---------------------------------------------------------------------------
+# Allocation table extractor
+# ---------------------------------------------------------------------------
+
 def extract_allocations(pdf) -> list[AllocationRow]:
     """Merge the Section 2 allocation table across pages 1-2 into 7 canonical rows.
 

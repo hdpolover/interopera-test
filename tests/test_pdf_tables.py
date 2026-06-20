@@ -2,7 +2,10 @@ import pdfplumber
 from decimal import Decimal
 
 from src.ingestion.pdf_tables import (
+    duration_bounds,
+    dv01_cap,
     extract_allocations,
+    extract_risk_metrics,
     normalize_ws,
     pct_fraction,
     sgd_int,
@@ -34,6 +37,23 @@ def test_normalize_ws_joins_lines_and_unescapes():
 
 
 _PDF = "sample_docs/sample_fund_guidelines.pdf"
+
+
+def test_duration_and_dv01_from_risk_table():
+    with pdfplumber.open(_PDF) as pdf:
+        dmin, dmax, dpage = duration_bounds(pdf)
+        cap, cpage = dv01_cap(pdf)
+    assert (dmin, dmax) == (Decimal("2.0"), Decimal("6.5"))
+    assert cap == Decimal("85000")
+    assert dpage == 2 and cpage == 2
+
+
+def test_extract_risk_metrics_has_six_rows():
+    with pdfplumber.open(_PDF) as pdf:
+        metrics = extract_risk_metrics(pdf)
+    assert "Modified Duration" in metrics
+    assert "Portfolio DV01" in metrics
+    assert len(metrics) == 6
 
 
 def test_extract_allocations_merges_all_seven_rows():
