@@ -139,11 +139,11 @@ docker compose run --rm app python -m src.cli.main <subcommand> [options]
 | `reconcile --firm {A,B,C}` | Reconcile computed figures against the answer key (xlsx for Firm A, YAML for Firm B); exits 1 on mismatch |
 | `evaluate --firm {A,B,C}` | Full Phase 5: reconcile + traceability check + firewall check; exits 1 on any failure; writes `out/evaluate_{firm}.json` |
 | `verify-determinism --firm {A,B,C}` | Run the engine twice and assert byte-identical JSON output |
-| `narrate --firm {A,B,C}` | Generate narrative (LLM or stub) and run the firewall check |
+| `narrate --firm {A,B,C}` | Generate narrative (LLM or stub) and run the firewall check; shows live spinners for compute / generate / firewall stages |
 | `query-metric --metric <name>` / `--all` | Multi-hop graph traversal: RiskMetric → BreachAction → Owner for any §3.1 metric |
 | `show-audit-log [--last N] [--verify]` | Print audit event table and verify SHA-256 hash chain integrity |
-| `replay --figure <name> --firm {A,B}` | Show graph_path, citation, delta vs answer key, and config knobs for a figure |
-| `generate-dsl --firm {A,B}` | Emit annotated YAML config DSL to stdout |
+| `replay --figure <name> --firm {A,B,C}` | Show graph_path, citation, delta vs answer key, and config knobs for a figure |
+| `generate-dsl --firm {A,B,C}` | Emit annotated YAML config DSL to stdout |
 | `preview-config --dsl <path>` | Validate DSL, run engine, show diff table vs Firm A baseline |
 
 ---

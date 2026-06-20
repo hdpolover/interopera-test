@@ -39,6 +39,12 @@ def logger():
         log = AuditLogger(PG_DSN)
         yield log
         log.close()
+
+        # Teardown: remove test rows (including any intentionally corrupted rows from
+        # tamper-detection tests) so they don't pollute the CLI's audit chain.
+        with psycopg.connect(PG_DSN) as conn:
+            conn.execute("TRUNCATE TABLE audit_event RESTART IDENTITY")
+            conn.commit()
     except Exception as e:
         pytest.skip(f"Postgres not available: {e}")
 

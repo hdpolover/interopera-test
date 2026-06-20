@@ -110,7 +110,7 @@ A node may be automatically promoted from `PENDING_REVIEW` to `VERIFIED` without
 **Processing:**
 - `report_writer.py` writes all 13 figures to an xlsx file. Column layout: figure_id, value, status, citation, graph_path.
 - The xlsx writer reads **exclusively from the list of `Figure` objects**. No narrative string is passed to the report writer (narrative is written to a separate file).
-- Optionally, `narrative_writer.py` generates a prose summary using the LLM. The narrative is firewalled: every numeric token in the narrative must appear in the computed figures set (enforced by `src/firewall/checker.py`).
+- Optionally, `narrator.py` generates a prose summary using the LLM. The narrative is firewalled: every numeric token in the narrative must appear in the computed figures set (enforced by `src/firewall/checker.py`).
 
 **Audit event emitted:** `report_exported` (see catalogue below).
 

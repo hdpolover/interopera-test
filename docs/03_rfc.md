@@ -141,7 +141,7 @@ The `actor` parameter is required and must be a non-empty string identifying the
 
 | Concern | Permitted | Forbidden |
 |---------|-----------|-----------|
-| Narrative prose generation | Yes — `narrative_writer.py` calls LLM with Figure list as read-only context | N/A |
+| Narrative prose generation | Yes — `narrator.py` calls LLM with Figure list as read-only context | N/A |
 | `passage_summary` in `RuleChunk` | Yes — descriptive prose summary of a PDF passage | Must not contain numeric figure values |
 | Graph structure proposal | Yes — LLM may propose node/edge structure in a separate design step | Must be human-gated before loading into Neo4j |
 | Figure value computation | **FORBIDDEN** | LLM must never compute or estimate a figure value |
