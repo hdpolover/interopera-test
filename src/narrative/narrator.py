@@ -9,15 +9,25 @@ no exception, same output for same inputs.
 """
 from __future__ import annotations
 
+import logging
 import os
 from typing import Optional
 
 from src.compute.registry import Figure
 
-# Model override via env var — allows upgrading/swapping without code changes
-# when the current model is deprecated or a better option becomes available.
-_DEFAULT_MODEL = "claude-sonnet-4-6"
-_ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", _DEFAULT_MODEL)
+_log = logging.getLogger(__name__)
+
+# Caps the LLM response length; keeps narratives concise and avoids runaway token
+# usage. Override with ANTHROPIC_MAX_TOKENS for deployments that need longer output.
+_DEFAULT_MAX_NARRATIVE_TOKENS: int = 1024
+_MAX_NARRATIVE_TOKENS: int = int(
+    os.environ.get("ANTHROPIC_MAX_TOKENS", str(_DEFAULT_MAX_NARRATIVE_TOKENS))
+)
+
+# Model is env-overridable so it can be upgraded/swapped without code changes.
+# DEFAULT_ANTHROPIC_MODEL is the single source of truth for the fallback model id.
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+_ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL)
 
 
 class Narrator:
@@ -199,9 +209,8 @@ class Narrator:
                         )
                     if parts:
                         passage_section = "\n\n" + "\n\n".join(parts)
-            except Exception:  # noqa: BLE001 — deliberate fallthrough; passage retrieval is best-effort
-                # If retrieval fails, proceed without passages
-                pass
+            except Exception as exc:  # noqa: BLE001 — passage retrieval is best-effort; narrative continues without it
+                _log.warning("Passage retrieval failed; proceeding without context: %s", exc, exc_info=True)
 
         prompt = (
             f"Write a concise compliance report narrative for {firm_id}.\n\n"
@@ -220,7 +229,7 @@ class Narrator:
         )
         message = client.messages.create(  # type: ignore[attr-defined]
             model=_ANTHROPIC_MODEL,
-            max_tokens=1024,
+            max_tokens=_MAX_NARRATIVE_TOKENS,
             messages=[{"role": "user", "content": prompt}],
         )
         return message.content[0].text

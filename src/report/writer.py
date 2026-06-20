@@ -13,7 +13,21 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from openpyxl.styles import Alignment, Font, PatternFill
+
 from src.compute.registry import Figure
+
+# openpyxl copies style objects into each cell on assignment, so these
+# module-level instances are safely reused across multiple workbooks and cells.
+_STATUS_FILL: dict[str, PatternFill] = {
+    "BREACH":   PatternFill(fill_type="solid", fgColor="FF4444"),
+    "AT LIMIT": PatternFill(fill_type="solid", fgColor="FFAA00"),
+    "OK":       PatternFill(fill_type="solid", fgColor="00AA44"),
+}
+_WHITE_FONT = Font(color="FFFFFF")
+_HEADER_FILL = PatternFill(fill_type="solid", fgColor="EEEEEE")
+_HEADER_FONT = Font(bold=True)
+_HEADER_ALIGN = Alignment(horizontal="center")
 
 # Template lives in sample_docs/ relative to repo root.
 # In Docker the repo is mounted at /app; locally it is the CWD.
@@ -98,16 +112,6 @@ def write_report(figures: list[Figure], output_path: str) -> None:
     All cells sourced exclusively from the figures list — no narrative/LLM input.
     """
     import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment
-
-    _STATUS_FILL = {
-        "BREACH":   PatternFill(fill_type="solid", fgColor="FF4444"),
-        "AT LIMIT": PatternFill(fill_type="solid", fgColor="FFAA00"),
-        "OK":       PatternFill(fill_type="solid", fgColor="00AA44"),
-    }
-    _WHITE_FONT = Font(color="FFFFFF")
-    _HEADER_FILL = PatternFill(fill_type="solid", fgColor="EEEEEE")
-    _HEADER_FONT = Font(bold=True)
 
     fig_map: dict[str, Figure] = {f.figure: f for f in figures}
     template_path = _find_template()
@@ -121,7 +125,7 @@ def write_report(figures: list[Figure], output_path: str) -> None:
         for cell in ws[1]:
             cell.font = _HEADER_FONT
             cell.fill = _HEADER_FILL
-            cell.alignment = Alignment(horizontal="center")
+            cell.alignment = _HEADER_ALIGN
 
         # Fill columns C–G (3–7) for each data row, in template row order.
         for row_idx, (_, _, fig_id) in enumerate(_TEMPLATE_ROWS, start=2):
@@ -151,7 +155,7 @@ def write_report(figures: list[Figure], output_path: str) -> None:
         for cell in ws[1]:
             cell.font = _HEADER_FONT
             cell.fill = _HEADER_FILL
-            cell.alignment = Alignment(horizontal="center")
+            cell.alignment = _HEADER_ALIGN
 
         for section, metric, fig_id in _TEMPLATE_ROWS:
             fig = fig_map.get(fig_id)
