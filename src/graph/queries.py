@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from decimal import Decimal
 from typing import Any, Final, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
@@ -426,6 +427,23 @@ def list_all_breach_actions(driver: Any) -> list[dict[str, Any]]:
             """
         )
         return [_row_to_dict(r) for r in result]
+
+
+_BOUND_KEYS = ("min_value", "max_value", "cap_value", "floor_value")
+
+
+def limit_bounds_for_ref(driver: Any, limit_ref: str) -> dict[str, Decimal]:
+    """Return Threshold bounds (as Decimal) for a figure's limit_ref, or {} if absent."""
+    with driver.session() as session:
+        rec = session.run(
+            "MATCH (l:Limit {ref: $ref})-[:HAS_THRESHOLD]->(t:Threshold) "
+            "RETURN t.min_value AS min_value, t.max_value AS max_value, "
+            "t.cap_value AS cap_value, t.floor_value AS floor_value LIMIT 1",
+            ref=limit_ref,
+        ).single()
+    if rec is None:
+        return {}
+    return {k: Decimal(str(rec[k])) for k in _BOUND_KEYS if rec[k] is not None}
 
 
 def breach_action_for_metric(driver: Any, metric: str) -> dict[str, Any]:

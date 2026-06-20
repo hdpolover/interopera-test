@@ -339,3 +339,11 @@ def test_approve_node_unknown_label_raises(loaded_graph):
     from src.graph.queries import approve_node
     with pytest.raises(ValueError, match="Unknown node_label"):
         approve_node(loaded_graph, "some-id", actor="tester", node_label="GhostNode")
+
+
+def test_limit_bounds_for_ref(loaded_graph):
+    from src.graph.queries import limit_bounds_for_ref
+    b = limit_bounds_for_ref(loaded_graph, "allocation_sgs_limit")
+    assert b["min_value"] == Decimal("0.20") and b["max_value"] == Decimal("0.60")
+    assert limit_bounds_for_ref(loaded_graph, "dv01_limit")["cap_value"] == Decimal("85000")
+    assert limit_bounds_for_ref(loaded_graph, "nonexistent") == {}

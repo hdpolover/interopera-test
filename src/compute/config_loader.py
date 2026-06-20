@@ -40,7 +40,6 @@ class FirmConfig(BaseModel):
     non_ig: NonIgConfig
     concentration: ConcentrationConfig
     output: OutputConfig
-    limits: dict[str, Any] = {}
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

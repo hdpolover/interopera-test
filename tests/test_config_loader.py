@@ -40,7 +40,7 @@ def test_missing_required_knob_raises_validation_error():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         yaml.dump(firm_yaml, f)
         firm_path = f.name
-    base_yaml = {"limits": {}}
+    base_yaml: dict = {}
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         yaml.dump(base_yaml, f)
         base_path = f.name
@@ -88,7 +88,7 @@ def test_invalid_group_key_raises():
         yaml.dump(firm_yaml, f)
         firm_path = f.name
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        yaml.dump({"limits": {}}, f)
+        yaml.dump({}, f)
         base_path = f.name
     with pytest.raises(ValidationError):
         load_config(base_path, firm_path)
@@ -111,7 +111,12 @@ def test_unknown_config_key_raises_validation_error():
         yaml.dump(firm_yaml, f)
         firm_path = f.name
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        yaml.dump({"limits": {}}, f)
+        yaml.dump({}, f)
         base_path = f.name
     with pytest.raises(ValidationError):
         load_config(base_path, firm_path)
+
+
+def test_firmconfig_has_no_limits_field():
+    from src.compute.config_loader import FirmConfig
+    assert "limits" not in FirmConfig.model_fields

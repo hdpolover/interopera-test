@@ -289,8 +289,9 @@ def load_risk_metrics(
             # Threshold node + HAS_THRESHOLD edge
             session.run(
                 """
-                MERGE (t:Threshold {metric: $metric})
-                SET t.limit_value            = $limit_value,
+                MERGE (t:Threshold {key: $metric})
+                SET t.metric                 = $metric,
+                    t.limit_value            = $limit_value,
                     t.source_doc             = $source_doc,
                     t.page                   = $page,
                     t.chunk_id               = $chunk_id,
@@ -303,7 +304,7 @@ def load_risk_metrics(
             session.run(
                 """
                 MATCH (rm:RiskMetric {metric: $metric})
-                MATCH (t:Threshold {metric: $metric})
+                MATCH (t:Threshold {key: $metric})
                 MERGE (rm)-[r:HAS_THRESHOLD]->(t)
                 SET r.source_doc            = $source_doc,
                     r.ingested_at           = $ingested_at,
@@ -408,35 +409,44 @@ def load_rules(
                 status=status,
             )
 
-            rule_type = chunk.extracted_fields.get("rule_type", "unknown")
-            ref = f"{rule_type}_{chunk.chunk_id}"
+            fields = chunk.extracted_fields
+            rule_type = fields.get("rule_type", "unknown")
+            limit_ref = fields.get("limit_ref")
+            ref = limit_ref if limit_ref else f"{rule_type}_{chunk.chunk_id}"
 
-            # Merge Limit node linked to its SourceChunk via DERIVED_FROM
             session.run(
                 """
                 MERGE (l:Limit {ref: $ref})
-                SET l.rule_type              = $rule_type,
-                    l.status                 = $status,
-                    l.extraction_confidence  = $extraction_confidence,
-                    l.source_doc             = $source_doc,
-                    l.page                   = $page,
-                    l.chunk_id               = $chunk_id,
-                    l.ingested_at            = $ingested_at
+                SET l.rule_type = $rule_type, l.status = $status,
+                    l.extraction_confidence = $conf, l.source_doc = $source_doc,
+                    l.page = $page, l.chunk_id = $chunk_id, l.ingested_at = $ingested_at
                 WITH l
                 MATCH (sc:SourceChunk {chunk_id: $chunk_id})
                 MERGE (l)-[r:DERIVED_FROM]->(sc)
-                SET r.source_doc            = $source_doc,
-                    r.page                  = $page,
-                    r.chunk_id              = $chunk_id,
-                    r.ingested_at           = $ingested_at,
-                    r.extraction_confidence = $extraction_confidence
+                SET r.ingested_at = $ingested_at
                 """,
-                ref=ref,
-                rule_type=rule_type,
-                status=status,
-                extraction_confidence=chunk.extraction_confidence,
-                source_doc=chunk.source_doc,
-                page=chunk.page,
-                chunk_id=chunk.chunk_id,
+                ref=ref, rule_type=rule_type, status=status, conf=chunk.extraction_confidence,
+                source_doc=chunk.source_doc, page=chunk.page, chunk_id=chunk.chunk_id,
                 ingested_at=ingested_at,
             )
+
+            # Allowlisted bound keys — no f-string injection of values
+            _ALLOWED_BOUND_KEYS = frozenset(
+                {"min_value", "max_value", "cap_value", "floor_value", "unit"}
+            )
+            bounds = fields.get("bounds")
+            if bounds:
+                safe_bounds = {k: v for k, v in bounds.items() if k in _ALLOWED_BOUND_KEYS}
+                set_clause = ", ".join(f"t.{k} = ${k}" for k in safe_bounds)
+                session.run(
+                    f"""
+                    MERGE (t:Threshold {{key: $ref}})
+                    SET {set_clause}, t.status = $status, t.chunk_id = $chunk_id,
+                        t.ingested_at = $ingested_at, t.extraction_confidence = $conf
+                    WITH t
+                    MATCH (l:Limit {{ref: $ref}})
+                    MERGE (l)-[:HAS_THRESHOLD]->(t)
+                    """,
+                    ref=ref, status=status, chunk_id=chunk.chunk_id,
+                    ingested_at=ingested_at, conf=chunk.extraction_confidence, **safe_bounds,
+                )

@@ -154,7 +154,7 @@ Dev tools (`pytest-cov`, `mypy`, `bandit`, `ruff`) are included in `requirements
 available inside the container. Run them via Make:
 
 ```bash
-# Run tests with coverage report (86% total)
+# Run tests with coverage report (87% total)
 make coverage
 
 # Type-check all source files (0 errors)
@@ -200,27 +200,44 @@ both firms and exits 0 only when reconcile + traceability + firewall all pass.
 
 ---
 
-## How Rules Are Ingested (transcription vs. LLM)
+## How Rules Are Ingested
 
-By design, the default pipeline does **not** parse the guidelines PDF at run time. Rule
-content is loaded from a deterministic, hand-verified transcription of
-`sample_fund_guidelines.pdf` (`_STUB_PASSAGES` in `src/ingestion/guidelines_parser.py`).
-Each chunk's `source_doc`, `page`, and section label were checked against the actual PDF, so
-tracing `figure → graph path → SourceChunk → page` lands on the correct section of the
-source document.
+The guidelines are extracted by a **real, deterministic pdfplumber parse** of
+`sample_docs/sample_fund_guidelines.pdf` — no hand-typed transcription, no LLM.
+Three modules collaborate:
 
-This is a deliberate choice for **reproducibility** (constraint 1): an LLM extracting the
-same PDF could yield different chunk IDs, pages, or confidences across runs, breaking
-byte-identical output. An LLM-assisted extraction path exists in the same module
-(`parse_guidelines(pdf_path, llm_client=...)`, using `pdfplumber` + an injected client) to
-show how the same `RuleChunk` contract is populated at scale — it is off by default.
-See `docs/DECISIONS.md §24`.
+- `src/ingestion/pdf_tables.py` — reads allocation and risk-metric tables directly
+  from the PDF. Numeric-cleaning helpers (`pct_fraction`, `sgd_int`, `year_range`,
+  `normalize_ws`, `extract_allocations`, `extract_risk_metrics`, `duration_bounds`,
+  `dv01_cap`) produce `Decimal` values from raw table cells.
+- `src/ingestion/rule_extractors.py` — anchored regex patterns applied to normalized
+  page text extract 5 prose rules (non-IG cap, corporate concentration, GRE cap,
+  liquidity floor, counterparty cap). Confidence is a **deterministic function of
+  parse method**: `0.92` for rules with a unique, unambiguous anchor phrase; `0.80`
+  for rules in crowded multi-percentage paragraphs.
+- `src/ingestion/guidelines_parser.py` — assembles `RuleChunk` objects from the
+  above extractors. `chunk_id = sha256(text)[:16]`. No `_STUB_PASSAGES` table, no
+  LLM client injected by any CLI command.
 
-The transcription includes one **deliberately low-confidence** chunk (the §3.2
-single-counterparty 5% cap, `extraction_confidence = 0.78`) so the human-verification gate
-is demonstrable: it loads `PENDING_REVIEW` and surfaces in `verify-graph` for a human to
-approve. It anchors none of the 13 reported figures, so the figures compute regardless
-(`docs/DECISIONS.md §25`).
+**Limit values live on the graph, not in config:** each figure's `limit_ref` points
+to a `Limit` node; the engine traverses `(Limit {ref})-[:HAS_THRESHOLD]->(Threshold)`
+to obtain numeric bounds (`min_value`, `max_value`, `cap_value`, `floor_value`, `unit`)
+at compute time. `config/base.yaml` holds no `limits:` block.
+
+**Reproducibility guard (constraint C1):** `tests/fixtures/parsed_guidelines.json`
+is a committed golden snapshot. `test_parse_matches_golden_snapshot` asserts
+byte-identical parse output on every run. Any `pdfplumber` version change that silently
+alters extraction will immediately fail this test.
+
+**Genuine low-confidence gate:** the §3.2 single-counterparty 5%-of-NAV cap is
+extracted at confidence `0.80` (a crowded multi-percentage paragraph). Because
+`0.80 < 0.85`, its `Limit` node loads `PENDING_REVIEW` and surfaces in `verify-graph`
+for human approval. It anchors none of the 13 reported figures, so figures compute
+regardless. See `docs/DECISIONS.md §25`.
+
+**Firm C has its own expected key:** `config/firm_c_expected.yaml` defines the answer
+key for Firm C, so `reconcile --firm C` and `evaluate --firm C` route correctly.
+See `docs/DECISIONS.md §5` for the Firm C knob combination.
 
 ---
 
@@ -322,7 +339,7 @@ assert logger.verify_chain()
 │   └── report/                # xlsx report writer
 ├── bin/
 │   └── fundra                 # Shell wrapper — use instead of full docker compose run
-├── tests/                     # Full test suite (348 tests across 27 files)
+├── tests/                     # Full test suite (360 tests across 29 files)
 ├── docker-compose.yml
 ├── init.sql                   # Postgres schema + append-only trigger
 └── .env.example               # Port override documentation

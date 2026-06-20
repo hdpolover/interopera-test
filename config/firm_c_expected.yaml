@@ -1,0 +1,61 @@
+# Expected Firm C figure values for reconcile
+# value is always in percent_1dp/years_2dp/sgd_dv01 format
+# utilization is in truncated_bps for Firm C (same as B)
+#
+# Firm C: fallen angels excluded (like A), GRE grouped by parent (like B).
+# Key difference from Firm B: aggregate_non_ig_exposure is 15.0% (not 21.0%)
+# because fallen angels (6.0%) are excluded from the non-IG exposure count.
+
+figures:
+  allocation_sgs:
+    value: "35.0%"
+    utilization: "5833 bps"
+    status: "OK"
+  allocation_mas_bills:
+    value: "8.0%"
+    utilization: "2000 bps"
+    status: "OK"
+  allocation_ig_corp:
+    value: "33.0%"
+    utilization: "6600 bps"
+    status: "OK"
+  allocation_high_yield:
+    value: "9.0%"
+    utilization: "6000 bps"
+    status: "OK"
+  allocation_fx_bonds:
+    value: "5.0%"
+    utilization: "2500 bps"
+    status: "OK"
+  allocation_structured_credit:
+    value: "6.0%"
+    utilization: "6000 bps"
+    status: "OK"
+  allocation_cash:
+    value: "4.0%"
+    utilization: "n/a"
+    status: "BREACH"
+  aggregate_non_ig_exposure:
+    value: "15.0%"
+    utilization: "7500 bps"
+    status: "OK"
+  largest_single_corporate_issuer:
+    value: "8.0%"
+    utilization: "10000 bps"
+    status: "AT LIMIT"
+  largest_gre_issuer:
+    value: "13.0%"
+    utilization: "10833 bps"
+    status: "BREACH"
+  liquid_assets_ratio:
+    value: "47.0%"
+    utilization: "18800 bps"
+    status: "OK"
+  portfolio_duration:
+    value: "3.88 yrs"
+    utilization: "n/a"
+    status: "OK"
+  portfolio_dv01:
+    value: "SGD 38,790 / bp"
+    utilization: "4563 bps"
+    status: "OK"

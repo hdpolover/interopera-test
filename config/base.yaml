@@ -1,38 +1,5 @@
-# Base configuration — firm-agnostic limit bindings
+# Base configuration — firm-agnostic settings.
 # Knobs (include_fallen_angels, group_key, utilization_format) are NOT set here.
 # Each firm_*.yaml must supply all required knobs.
 
-limits:
-  allocation_sgs:
-    min_pct: 0.20
-    max_pct: 0.60
-  allocation_mas_bills:
-    min_pct: 0.00
-    max_pct: 0.40
-  allocation_ig_corp:
-    min_pct: 0.10
-    max_pct: 0.50
-  allocation_high_yield:
-    min_pct: 0.00
-    max_pct: 0.15
-  allocation_fx_bonds:
-    min_pct: 0.00
-    max_pct: 0.20
-  allocation_structured_credit:
-    min_pct: 0.00
-    max_pct: 0.10
-  allocation_cash:
-    min_pct: 0.05
-  aggregate_non_ig_exposure:
-    max_pct: 0.20
-  largest_single_corporate_issuer:
-    max_pct: 0.08
-  largest_gre_issuer:
-    max_pct: 0.12
-  liquid_assets_ratio:
-    min_pct: 0.25
-  portfolio_duration:
-    min_years: 2.0
-    max_years: 6.5
-  portfolio_dv01:
-    max_sgd: 85000
+# Limit values are parsed from the guidelines PDF into Threshold nodes; see docs/DECISIONS.md
