@@ -5,7 +5,19 @@ All position queries ORDER BY p.instrument_id for determinism.
 """
 from __future__ import annotations
 
-from typing import Any
+import logging
+from collections.abc import Sequence
+from typing import Any, Final, Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class _HasCitation(Protocol):
+    """Structural type for objects that carry a citation dict (e.g. Figure)."""
+
+    @property
+    def citation(self) -> dict: ...
 
 # Asset classes considered liquid (government securities + cash)
 _LIQUID_ASSET_CLASSES = {
@@ -28,24 +40,37 @@ _BELOW_IG_RATINGS = {
     "CC", "C", "D",
 }
 
-# Cypher snippet for the standard position column list (no trailing comma)
-_POSITION_COLUMNS = """
-    p.instrument_id        AS instrument_id,
-    p.instrument_name      AS instrument_name,
-    p.asset_class          AS asset_class,
-    p.issuer_name          AS issuer_name,
-    p.issuer_type          AS issuer_type,
-    p.credit_rating        AS credit_rating,
-    p.downgraded_from      AS downgraded_from,
-    p.market_value_sgd     AS market_value_sgd,
-    p.modified_duration    AS modified_duration,
-    p.status               AS status,
-    p.source_doc           AS source_doc,
-    p.page                 AS page,
-    p.chunk_id             AS chunk_id,
-    p.ingested_at          AS ingested_at,
-    p.extraction_confidence AS extraction_confidence
-"""
+# Allowlisted position property names returned in every selector query.
+# Expressed as a frozen tuple so static analysis and runtime checks can verify
+# each entry is a plain identifier with no injection surface.
+_POSITION_COLUMN_NAMES: Final[tuple[str, ...]] = (
+    "instrument_id",
+    "instrument_name",
+    "asset_class",
+    "issuer_name",
+    "issuer_type",
+    "credit_rating",
+    "downgraded_from",
+    "market_value_sgd",
+    "modified_duration",
+    "status",
+    "source_doc",
+    "page",
+    "chunk_id",
+    "ingested_at",
+    "extraction_confidence",
+)
+
+# Verify every column name is a safe identifier (letters, digits, underscores only).
+assert all(
+    name.replace("_", "").isalnum() for name in _POSITION_COLUMN_NAMES
+), "BUG: _POSITION_COLUMN_NAMES contains an unsafe identifier"
+
+# Cypher RETURN clause built once from the allowlisted column names.
+# Columns are comma-separated so the snippet is valid inside a RETURN clause.
+_POSITION_COLUMNS: Final[str] = ",\n    ".join(
+    f"p.{col} AS {col}" for col in _POSITION_COLUMN_NAMES
+)
 
 
 def _row_to_dict(record: Any) -> dict[str, Any]:
@@ -207,27 +232,67 @@ def list_pending_nodes(driver: Any) -> list[dict[str, Any]]:
         return [_row_to_dict(r) for r in result]
 
 
-def approve_node(driver: Any, node_id: str, actor: str) -> None:
+# Maps each node label to the single property that uniquely identifies it.
+# Used by approve_node when the caller provides a node_label discriminator.
+_LABEL_KEY_MAP: Final[dict[str, str]] = {
+    "Position": "instrument_id",
+    "Limit": "chunk_id",
+    "SourceChunk": "chunk_id",
+    "RiskMetric": "metric",
+    "AssetClass": "name",
+    "Issuer": "name",
+    "ParentIssuer": "name",
+    "Owner": "name",
+    "BreachAction": "action",
+    "Threshold": "metric",
+}
+
+
+def approve_node(
+    driver: Any,
+    node_id: str,
+    actor: str,
+    node_label: str | None = None,
+) -> None:
     """Flip a PENDING_REVIEW node to VERIFIED.
+
+    When node_label is provided (e.g. "Limit"), the MATCH targets only nodes
+    with that label, keyed by the label's canonical identity property from
+    _LABEL_KEY_MAP.  This prevents a same-valued property on a different node
+    type from being accidentally approved.
+
+    When node_label is None the legacy COALESCE path is used (backward-compatible
+    for callers that do not yet supply a label).
 
     Raises ValueError if actor is empty or whitespace-only — every approval
     must be attributed to a named reviewer for audit purposes.
+    Raises ValueError if node_label is supplied but not in _LABEL_KEY_MAP.
     """
     if not actor or not actor.strip():
         raise ValueError("actor must be a non-empty string for approve_node")
 
-    with driver.session() as session:
-        session.run(
-            """
-            MATCH (n)
-            WHERE COALESCE(n.instrument_id, n.chunk_id, n.ref, n.name, '') = $node_id
-              AND n.status = 'PENDING_REVIEW'
-            SET n.status      = 'VERIFIED',
-                n.approved_by = $actor
-            """,
-            node_id=node_id,
-            actor=actor,
+    if node_label is not None:
+        if node_label not in _LABEL_KEY_MAP:
+            raise ValueError(
+                f"Unknown node_label {node_label!r}. "
+                f"Known labels: {sorted(_LABEL_KEY_MAP)}"
+            )
+        key_prop = _LABEL_KEY_MAP[node_label]
+        cypher = (
+            f"MATCH (n:{node_label} {{{key_prop}: $node_id}})\n"
+            "WHERE n.status = 'PENDING_REVIEW'\n"
+            "SET n.status = 'VERIFIED', n.approved_by = $actor"
         )
+    else:
+        cypher = (
+            "MATCH (n)\n"
+            "WHERE COALESCE(n.instrument_id, n.chunk_id, n.ref, n.name, '') = $node_id\n"
+            "  AND n.status = 'PENDING_REVIEW'\n"
+            "SET n.status = 'VERIFIED', n.approved_by = $actor"
+        )
+
+    with driver.session() as session:
+        session.run(cypher, node_id=node_id, actor=actor)
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +334,7 @@ def threshold_node(driver: Any, metric: str) -> dict[str, Any]:
 
 
 def retrieve_passages_for_narrative(
-    driver: Any, figures: list
+    driver: Any, figures: Sequence[_HasCitation]
 ) -> list[dict[str, Any]]:
     """Retrieve SourceChunk passages for narrative grounding.
 
@@ -282,7 +347,16 @@ def retrieve_passages_for_narrative(
     """
     seen: dict[str, dict[str, Any]] = {}
 
-    # Global retrieval — query broadly for any node with chunk_id property
+    # Global retrieval — query broadly for any node with chunk_id property.
+    # CypherSyntaxError and ServiceUnavailable indicate the graph legitimately
+    # has no such nodes (missing label) or a transient connection issue.
+    # Other exceptions are unexpected and are logged before re-raising.
+    try:
+        from neo4j.exceptions import CypherSyntaxError, ServiceUnavailable  # type: ignore[import-untyped]
+    except ImportError:
+        CypherSyntaxError = Exception  # type: ignore[misc,assignment]
+        ServiceUnavailable = Exception  # type: ignore[misc,assignment]
+
     try:
         with driver.session() as session:
             result = session.run(
@@ -302,9 +376,17 @@ def retrieve_passages_for_narrative(
                 cid = row.get("chunk_id")
                 if cid and cid not in seen:
                     seen[cid] = row
-    except Exception:  # noqa: BLE001 — deliberate fallthrough; graph may lack chunk nodes
-        # If the graph has no such nodes or query fails, fall through to local retrieval
+    except (CypherSyntaxError, ServiceUnavailable):
+        # Graph may lack chunk nodes or be transiently unavailable;
+        # fall through to local retrieval.
         pass
+    except Exception as exc:
+        # Log unexpected errors at WARNING and fall through to local retrieval.
+        # This function is designed to degrade gracefully so narrative generation
+        # is never blocked by a graph retrieval failure.
+        logger.warning(
+            "Unexpected error during global passage retrieval: %s", exc, exc_info=True
+        )
 
     # Local retrieval — pull citation from each figure's citation dict
     for fig in figures:

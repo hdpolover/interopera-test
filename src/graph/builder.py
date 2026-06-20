@@ -1,27 +1,22 @@
 """Build the Neo4j compliance knowledge graph from ingested records."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
+
+from src.graph.constants import ASSET_CLASS_SLUG
 
 if TYPE_CHECKING:
     from src.ingestion.holdings_parser import PositionRecord
     from src.ingestion.guidelines_parser import RuleChunk
 
+logger = logging.getLogger(__name__)
+
 _CONFIDENCE_THRESHOLD = 0.85
 
-# Maps each AssetClass display name to its URL-safe slug used in graph_path serialization.
-# Positions still match on the full `asset_class` string; the slug is an extra property
-# on the AssetClass node so the engine can read it back without string munging.
-_ASSET_CLASS_SLUG: dict[str, str] = {
-    "Singapore Government Securities": "sgs",
-    "MAS Bills": "mas_bills",
-    "Investment Grade Corporate Bonds": "ig_corp",
-    "High Yield Bonds": "high_yield",
-    "Foreign Currency Bonds": "fx_bonds",
-    "Structured Credit": "structured_credit",
-    "Cash & Cash Equivalents": "cash",
-}
+# Module-level alias kept for internal use; canonical definition lives in constants.py.
+_ASSET_CLASS_SLUG = ASSET_CLASS_SLUG
 
 # Asset classes that contribute to the non_ig aggregate bucket.
 _NON_IG_ASSET_CLASSES: frozenset[str] = frozenset({"High Yield Bonds", "Structured Credit"})
@@ -31,7 +26,11 @@ def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
 
 
-def load_positions(driver: Any, positions: list["PositionRecord"]) -> None:
+def load_positions(
+    driver: Any,
+    positions: list["PositionRecord"],
+    ingested_at: str | None = None,
+) -> None:
     """Create Position, AssetClass, Issuer, ParentIssuer nodes and edges.
 
     All nodes carry provenance props: source_doc, page, chunk_id, ingested_at,
@@ -40,8 +39,20 @@ def load_positions(driver: Any, positions: list["PositionRecord"]) -> None:
     Structural nodes (AssetClass, Issuer, ParentIssuer, Aggregate) are always
     status='VERIFIED' because they are deterministically derived from authoritative
     holdings CSV data — no confidence-gating is needed (unlike LLM-extracted Limits).
+
+    Raises ValueError for any position whose asset_class is not in ASSET_CLASS_SLUG,
+    so unknown classes never collide with the slug uniqueness constraint.
     """
-    ingested_at = _now_iso()
+    if ingested_at is None:
+        ingested_at = _now_iso()
+
+    for pos in positions:
+        if pos.asset_class not in _ASSET_CLASS_SLUG:
+            raise ValueError(
+                f"Unknown asset_class {pos.asset_class!r} for instrument "
+                f"{pos.instrument_id!r}. "
+                f"Known classes: {sorted(_ASSET_CLASS_SLUG)}"
+            )
 
     with driver.session() as session:
         for pos in positions:
@@ -97,7 +108,7 @@ def load_positions(driver: Any, positions: list["PositionRecord"]) -> None:
                     r.extraction_confidence = 1.0
                 """,
                 asset_class=pos.asset_class,
-                slug=_ASSET_CLASS_SLUG.get(pos.asset_class, pos.asset_class.lower().replace(" ", "_")),
+                slug=_ASSET_CLASS_SLUG[pos.asset_class],
                 instrument_id=pos.instrument_id,
                 ingested_at=ingested_at,
             )
@@ -152,7 +163,16 @@ def load_positions(driver: Any, positions: list["PositionRecord"]) -> None:
                 ingested_at=ingested_at,
             )
 
-            # GRE issuers: create ParentIssuer node and ROLLS_UP_TO edge
+            # GRE issuers: create ParentIssuer node and ROLLS_UP_TO edge.
+            # Emit a warning when parent_issuer is absent so concentration
+            # queries are never silently undercounted.
+            if pos.issuer_type == "GRE" and not pos.parent_issuer:
+                logger.warning(
+                    "GRE issuer %r (instrument %r) has no parent_issuer; "
+                    "ROLLS_UP_TO edge omitted — concentration rollup will undercount.",
+                    pos.issuer_name,
+                    pos.instrument_id,
+                )
             if pos.issuer_type == "GRE" and pos.parent_issuer:
                 session.run(
                     """
@@ -178,7 +198,11 @@ def load_positions(driver: Any, positions: list["PositionRecord"]) -> None:
                 )
 
 
-def load_risk_metrics(driver: Any, chunks: list["RuleChunk"]) -> None:
+def load_risk_metrics(
+    driver: Any,
+    chunks: list["RuleChunk"],
+    ingested_at: str | None = None,
+) -> None:
     """Create RiskMetric, Threshold, BreachAction, Owner nodes from the market_risk_metrics chunk.
 
     Graph structure per metric:
@@ -191,7 +215,8 @@ def load_risk_metrics(driver: Any, chunks: list["RuleChunk"]) -> None:
       "What is the breach action for portfolio_duration and who is notified?"
     All nodes carry standard provenance props. Idempotent via MERGE.
     """
-    ingested_at = _now_iso()
+    if ingested_at is None:
+        ingested_at = _now_iso()
     metric_chunks = [c for c in chunks if c.extracted_fields.get("rule_type") == "market_risk_metrics"]
     if not metric_chunks:
         return
@@ -232,19 +257,34 @@ def load_risk_metrics(driver: Any, chunks: list["RuleChunk"]) -> None:
                 metric=metric_key, limit=limit_val, monitoring_frequency=monitoring,
                 status=status, **prov,
             )
-            session.run(
-                """
-                MATCH (rm:RiskMetric {metric: $metric})
-                MATCH (sc:SourceChunk {chunk_id: $chunk_id})
-                MERGE (rm)-[r:DERIVED_FROM]->(sc)
-                SET r.source_doc            = $source_doc,
-                    r.page                  = $page,
-                    r.chunk_id              = $chunk_id,
-                    r.ingested_at           = $ingested_at,
-                    r.extraction_confidence = $extraction_confidence
-                """,
-                metric=metric_key, **prov,
-            )
+            # Guard: verify SourceChunk exists before attempting DERIVED_FROM merge.
+            # A missing SourceChunk (e.g. load_risk_metrics called before load_rules)
+            # would silently produce no edge; we emit a warning instead.
+            sc_check = session.run(
+                "MATCH (sc:SourceChunk {chunk_id: $chunk_id}) RETURN count(sc) AS cnt",
+                chunk_id=chunk.chunk_id,
+            ).single()
+            if not sc_check or sc_check["cnt"] == 0:
+                logger.warning(
+                    "SourceChunk %r not found; DERIVED_FROM edge for RiskMetric %r "
+                    "will not be created. Call load_rules before load_risk_metrics.",
+                    chunk.chunk_id,
+                    metric_key,
+                )
+            else:
+                session.run(
+                    """
+                    MATCH (rm:RiskMetric {metric: $metric})
+                    MATCH (sc:SourceChunk {chunk_id: $chunk_id})
+                    MERGE (rm)-[r:DERIVED_FROM]->(sc)
+                    SET r.source_doc            = $source_doc,
+                        r.page                  = $page,
+                        r.chunk_id              = $chunk_id,
+                        r.ingested_at           = $ingested_at,
+                        r.extraction_confidence = $extraction_confidence
+                    """,
+                    metric=metric_key, **prov,
+                )
 
             # Threshold node + HAS_THRESHOLD edge
             session.run(
@@ -324,14 +364,19 @@ def load_risk_metrics(driver: Any, chunks: list["RuleChunk"]) -> None:
             )
 
 
-def load_rules(driver: Any, chunks: list["RuleChunk"]) -> None:
+def load_rules(
+    driver: Any,
+    chunks: list["RuleChunk"],
+    ingested_at: str | None = None,
+) -> None:
     """Create SourceChunk and Limit nodes, with DERIVED_FROM edges.
 
     All nodes carry provenance props: source_doc, page, chunk_id, ingested_at,
     extraction_confidence.  Status is VERIFIED if confidence >= 0.85, else PENDING_REVIEW.
     Idempotent via MERGE.
     """
-    ingested_at = _now_iso()
+    if ingested_at is None:
+        ingested_at = _now_iso()
 
     with driver.session() as session:
         for chunk in chunks:

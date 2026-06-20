@@ -3,25 +3,8 @@
 Uses a Neo4j driver fixture. Set NEO4J_TEST_URI env var (default: bolt://localhost:7687).
 Tests are skipped if Neo4j is not available.
 """
-import os
 import pytest
 from decimal import Decimal
-
-NEO4J_URI = os.environ.get("NEO4J_TEST_URI", "bolt://localhost:7687")
-NEO4J_USER = os.environ.get("NEO4J_TEST_USER", "neo4j")
-NEO4J_PASS = os.environ.get("NEO4J_TEST_PASSWORD", "password")
-
-
-@pytest.fixture(scope="module")
-def driver():
-    try:
-        from neo4j import GraphDatabase
-        drv = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
-        drv.verify_connectivity()
-        yield drv
-        drv.close()
-    except Exception as e:
-        pytest.skip(f"Neo4j not available: {e}")
 
 
 @pytest.fixture(autouse=True)
@@ -493,3 +476,159 @@ def test_load_risk_metrics_idempotent(driver, sample_chunks):
         result = session.run("MATCH (rm:RiskMetric) RETURN count(rm) AS cnt")
         count = result.single()["cnt"]
     assert count == 6, f"Idempotency broken: expected 6 RiskMetric nodes, got {count}"
+
+
+# ---------------------------------------------------------------------------
+# Fix 3: Unknown asset class raises ValueError
+# ---------------------------------------------------------------------------
+
+
+def test_load_positions_raises_for_unknown_asset_class(driver):
+    """load_positions must raise ValueError for an unrecognised asset_class.
+
+    An unknown class cannot be assigned a slug and would violate the slug
+    uniqueness constraint if the fallback were allowed to proceed.
+    """
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_positions
+    from src.ingestion.holdings_parser import PositionRecord
+    from decimal import Decimal
+    import pytest
+
+    apply_schema(driver)
+    bad_position = PositionRecord(
+        instrument_id="BAD-01",
+        instrument_name="Unknown Class Bond",
+        asset_class="Crypto Assets",  # not in ASSET_CLASS_SLUG
+        issuer_name="Some Corp",
+        issuer_type="corporate",
+        parent_issuer=None,
+        credit_rating="BB",
+        downgraded_from=None,
+        market_value_sgd=Decimal("1000000"),
+        modified_duration=Decimal("2.0"),
+    )
+    with pytest.raises(ValueError, match="Unknown asset_class"):
+        load_positions(driver, [bad_position])
+
+
+# ---------------------------------------------------------------------------
+# Fix 4: GRE without parent_issuer emits a logging.warning
+# ---------------------------------------------------------------------------
+
+
+def test_gre_without_parent_issuer_emits_warning(driver, caplog):
+    """load_positions emits a WARNING when a GRE issuer has no parent_issuer."""
+    import logging
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_positions
+    from src.ingestion.holdings_parser import PositionRecord
+    from decimal import Decimal
+
+    apply_schema(driver)
+    gre_no_parent = PositionRecord(
+        instrument_id="GRE-NO-PARENT",
+        instrument_name="Orphan GRE Bond",
+        asset_class="Investment Grade Corporate Bonds",
+        issuer_name="Orphan GRE Corp",
+        issuer_type="GRE",
+        parent_issuer=None,  # deliberately absent
+        credit_rating="A",
+        downgraded_from=None,
+        market_value_sgd=Decimal("5000000"),
+        modified_duration=Decimal("3.0"),
+    )
+    with caplog.at_level(logging.WARNING, logger="src.graph.builder"):
+        load_positions(driver, [gre_no_parent])
+
+    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("Orphan GRE Corp" in m or "GRE-NO-PARENT" in m for m in warning_messages), (
+        f"Expected a warning mentioning the issuer or instrument, got: {warning_messages}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: load_risk_metrics warns when SourceChunk is missing
+# ---------------------------------------------------------------------------
+
+
+def test_load_risk_metrics_warns_when_source_chunk_missing(driver, sample_chunks, caplog):
+    """load_risk_metrics emits a WARNING for each metric when SourceChunk is absent.
+
+    Calling load_risk_metrics before load_rules means no SourceChunk nodes exist.
+    The DERIVED_FROM edge cannot be created; a warning must be emitted instead
+    of silently skipping.
+    """
+    import logging
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_risk_metrics
+
+    apply_schema(driver)
+    # Deliberately omit load_rules so no SourceChunk nodes exist
+    with caplog.at_level(logging.WARNING, logger="src.graph.builder"):
+        load_risk_metrics(driver, sample_chunks)
+
+    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warning_messages) >= 1, (
+        "Expected at least one warning when SourceChunk is missing before load_risk_metrics"
+    )
+    assert any("SourceChunk" in m or "DERIVED_FROM" in m for m in warning_messages), (
+        f"Warning did not mention SourceChunk or DERIVED_FROM: {warning_messages}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fix 5: ingested_at parameter pins timestamp across all three loaders
+# ---------------------------------------------------------------------------
+
+
+def test_load_positions_accepts_external_ingested_at(driver, sample_positions):
+    """load_positions stores the caller-supplied ingested_at on Position nodes."""
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_positions
+
+    apply_schema(driver)
+    fixed_ts = "2025-01-01T00:00:00+00:00"
+    load_positions(driver, sample_positions, ingested_at=fixed_ts)
+
+    with driver.session() as session:
+        result = session.run(
+            "MATCH (p:Position) RETURN p.ingested_at AS ts ORDER BY p.instrument_id"
+        )
+        timestamps = [record["ts"] for record in result]
+
+    assert all(ts == fixed_ts for ts in timestamps), (
+        f"All Position nodes must carry the supplied ingested_at; got: {timestamps}"
+    )
+
+
+def test_single_ingested_at_consistent_across_loaders(driver, sample_positions, sample_chunks):
+    """When all three loaders receive the same ingested_at, every node carries that value.
+
+    This proves that a caller can pin a single timestamp across the whole ingest run
+    so audit queries can group all nodes created in one run by ingested_at.
+    """
+    from src.graph.schema import apply_schema
+    from src.graph.builder import load_positions, load_rules, load_risk_metrics
+
+    apply_schema(driver)
+    fixed_ts = "2025-06-01T12:00:00+00:00"
+    load_positions(driver, sample_positions, ingested_at=fixed_ts)
+    load_rules(driver, sample_chunks, ingested_at=fixed_ts)
+    load_risk_metrics(driver, sample_chunks, ingested_at=fixed_ts)
+
+    with driver.session() as session:
+        # Sample one Position, one SourceChunk, one RiskMetric
+        pos_ts = session.run(
+            "MATCH (p:Position) RETURN p.ingested_at AS ts LIMIT 1"
+        ).single()["ts"]
+        sc_ts = session.run(
+            "MATCH (sc:SourceChunk) RETURN sc.ingested_at AS ts LIMIT 1"
+        ).single()["ts"]
+        rm_ts = session.run(
+            "MATCH (rm:RiskMetric) RETURN rm.ingested_at AS ts LIMIT 1"
+        ).single()["ts"]
+
+    assert pos_ts == fixed_ts, f"Position ingested_at mismatch: {pos_ts!r}"
+    assert sc_ts == fixed_ts, f"SourceChunk ingested_at mismatch: {sc_ts!r}"
+    assert rm_ts == fixed_ts, f"RiskMetric ingested_at mismatch: {rm_ts!r}"

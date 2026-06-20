@@ -1,23 +1,6 @@
 """Tests for graph query selectors. Requires Neo4j with 13 positions loaded."""
-import os
 import pytest
 from decimal import Decimal
-
-NEO4J_URI = os.environ.get("NEO4J_TEST_URI", "bolt://localhost:7687")
-NEO4J_USER = os.environ.get("NEO4J_TEST_USER", "neo4j")
-NEO4J_PASS = os.environ.get("NEO4J_TEST_PASSWORD", "password")
-
-
-@pytest.fixture(scope="module")
-def driver():
-    try:
-        from neo4j import GraphDatabase
-        drv = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
-        drv.verify_connectivity()
-        yield drv
-        drv.close()
-    except Exception as e:
-        pytest.skip(f"Neo4j not available: {e}")
 
 
 @pytest.fixture(scope="module")
@@ -295,3 +278,62 @@ def test_approve_node_flips_status_to_verified(loaded_graph):
     finally:
         with loaded_graph.session() as session:
             session.run("MATCH (l:Limit {ref: $ref}) DETACH DELETE l", ref=_SYNTHETIC_REF)
+
+
+def test_approve_node_label_does_not_approve_different_label(loaded_graph):
+    """approve_node with node_label must NOT flip a node of a different label.
+
+    Two nodes share the same chunk_id value: one Limit (PENDING_REVIEW) and one
+    SourceChunk (also PENDING_REVIEW).  Approving via node_label='Limit' must
+    leave the SourceChunk untouched, proving the label discriminator works.
+    """
+    from src.graph.queries import approve_node
+
+    _SHARED_ID = "shared_chunk_id_for_label_test"
+
+    with loaded_graph.session() as session:
+        session.run(
+            "MERGE (l:Limit {chunk_id: $cid}) "
+            "SET l.status = 'PENDING_REVIEW', l.rule_type = 'test_label_limit'",
+            cid=_SHARED_ID,
+        )
+        session.run(
+            "MERGE (sc:SourceChunk {chunk_id: $cid}) "
+            "SET sc.status = 'PENDING_REVIEW'",
+            cid=_SHARED_ID,
+        )
+
+    try:
+        # Approve only the Limit label — SourceChunk must remain PENDING_REVIEW
+        approve_node(loaded_graph, _SHARED_ID, actor="label_tester", node_label="Limit")
+
+        with loaded_graph.session() as session:
+            limit_rec = session.run(
+                "MATCH (l:Limit {chunk_id: $cid}) RETURN l.status AS status",
+                cid=_SHARED_ID,
+            ).single()
+            sc_rec = session.run(
+                "MATCH (sc:SourceChunk {chunk_id: $cid}) RETURN sc.status AS status",
+                cid=_SHARED_ID,
+            ).single()
+
+        assert limit_rec["status"] == "VERIFIED", (
+            "Limit node must be VERIFIED after label-targeted approval"
+        )
+        assert sc_rec["status"] == "PENDING_REVIEW", (
+            "SourceChunk must remain PENDING_REVIEW — it shares chunk_id but was NOT targeted"
+        )
+    finally:
+        with loaded_graph.session() as session:
+            session.run(
+                "MATCH (n) WHERE n.chunk_id = $cid AND (n:Limit OR n:SourceChunk) "
+                "DETACH DELETE n",
+                cid=_SHARED_ID,
+            )
+
+
+def test_approve_node_unknown_label_raises(loaded_graph):
+    """approve_node raises ValueError when node_label is not in _LABEL_KEY_MAP."""
+    from src.graph.queries import approve_node
+    with pytest.raises(ValueError, match="Unknown node_label"):
+        approve_node(loaded_graph, "some-id", actor="tester", node_label="GhostNode")
