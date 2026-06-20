@@ -89,6 +89,7 @@ A node may be automatically promoted from `PENDING_REVIEW` to `VERIFIED` without
 - `engine.py` traverses the verified graph in topological order.
 - For each figure, reads numeric bounds by traversing `(Limit {ref: spec.limit_ref})-[:HAS_THRESHOLD]->(Threshold)` via `queries.limit_bounds_for_ref`. Limit values are **not** read from `config/base.yaml` — they live on `Threshold` nodes in Neo4j.
 - Applies registered aggregators (`nav`, `sum_pct`, `weighted_avg_duration`, `dv01`, `max_group_pct`) and comparators (`within_min_max`, `max_cap`, `min_floor`).
+- A figure whose `Threshold` is missing a bound the comparator requires (e.g. a band rule missing its `max_value`) is returned as an `ERROR` figure, not crashed or silently mis-statused — the same "error, don't emit" rule applied to untraceable figures.
 - Produces exactly **13 `Figure` objects**. Each Figure has: `figure_id`, `value` (Decimal, never float), `status` (`OK` / `BREACH` / `AT LIMIT`, or `ERROR` for an untraceable/blocked figure), `graph_path` (Cypher-style string built from the actual traversal), `citation` (dict: `{ "source_doc": str, "page": int, "chunk_id": str, "passage_summary": str }`), `config_hash`. Citations are resolved per `limit_ref`, giving each allocation figure its own `SourceChunk` citation (e.g., `allocation_sgs` cites page 1, `allocation_fx_bonds` cites page 2).
 - **Zero LLM involvement.** The compute layer has no import of `anthropic`, `openai`, `httpx`, or `requests`. This is enforced by a static import gate test.
 

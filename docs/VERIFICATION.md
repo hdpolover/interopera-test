@@ -7,7 +7,7 @@
 
 This report documents live verification of the InterOpera fund compliance reporting system. The system is a fully automated pipeline that ingests portfolio holdings and regulatory guidelines, builds a Neo4j knowledge graph, computes 13 compliance figures against MAS-style fund investment limits, generates a narrative, and exports results to Excel with a full audit trail in Postgres.
 
-**360/360 tests pass.** All 13 figures compute correctly for both Firm A (13/13 reconcile PASS vs answer key) and Firm B (13/13 PASS). Firm C (`config/firm_c.yaml`) reconciles 13/13 with its own `config/firm_c_expected.yaml`. Three bonus features are implemented: replay viewer, configuration DSL with live preview, and narrative source retrieval. Two additional CLI commands expose Phase 2 multi-hop graph traversal (`query-metric`) and audit log visibility (`show-audit-log`). Excel reports now include status-based row highlighting and auto-fit column widths.
+**362/362 tests pass.** All 13 figures compute correctly for both Firm A (13/13 reconcile PASS vs answer key) and Firm B (13/13 PASS). Firm C (`config/firm_c.yaml`) reconciles 13/13 with its own `config/firm_c_expected.yaml`. Three bonus features are implemented: replay viewer, configuration DSL with live preview, and narrative source retrieval. Two additional CLI commands expose Phase 2 multi-hop graph traversal (`query-metric`) and audit log visibility (`show-audit-log`). Excel reports now include status-based row highlighting and auto-fit column widths.
 
 **Code quality:** 87% test coverage, mypy 0 errors, bandit 0 medium/high issues. GitHub Actions CI runs the full suite on every push via native service containers. Ingestion is a real deterministic pdfplumber parse of `sample_fund_guidelines.pdf` (no hand-typed transcription, no LLM); a golden snapshot in `tests/fixtures/parsed_guidelines.json` enforces reproducibility. Limit values live on graph `Threshold` nodes; the engine reads bounds via `limit_bounds_for_ref` — not from YAML config. Per-figure citations are correct: each of the 7 allocation figures resolves its own `SourceChunk` (e.g., `allocation_sgs` cites page 1, `allocation_fx_bonds` cites page 2). The §3.2 counterparty cap is extracted at confidence `0.80` (a genuine low-confidence prose rule), loads `PENDING_REVIEW`, and demonstrates the human gate.
 
@@ -46,6 +46,7 @@ This report documents live verification of the InterOpera fund compliance report
 | **Phase 2 — Graph** | Schema: uniqueness constraints on all node types | `src/graph/schema.py:CONSTRAINTS` (11 constraints) | **PASS** |
 | **Phase 3 — Compute** | 13 compliance figures produced | `src/compute/registry.py:FIGURE_REGISTRY` (13 specs) | **PASS** |
 | **Phase 3 — Compute** | Limit bounds from graph Threshold nodes (not config YAML) | `queries.py:limit_bounds_for_ref()` traverses `(Limit {ref})-[:HAS_THRESHOLD]->(Threshold)` | **PASS** |
+| **Phase 3 — Compute** | Missing/partial Threshold bounds → ERROR figure (not a crash) | `engine.py:compute_figure()` bounds-completeness gate (`_REQUIRED_BOUNDS`) | **PASS** |
 | **Phase 3 — Compute** | graph_path + citation on every figure; per-figure citation via limit_ref | `engine.py:_build_graph_path()`, `_get_citation()` (resolves by `Limit {ref}`) | **PASS** |
 | **Phase 3 — Compute** | utilization field on every figure | `engine.py:_compute_utilization()` | **PASS** |
 | **Phase 3 — Compute** | status ∈ {OK, BREACH, AT LIMIT, ERROR} | `engine.py:_apply_comparator()` | **PASS** |
@@ -142,7 +143,7 @@ config/firm_b.yaml ────┘                                              
 ### 3.1 Test Suite
 
 ```text
-360 passed in 24.37s
+362 passed in 21.98s
 ```
 
 29 test modules covering CLI commands, graph builder/queries, compute engine (Firm A + B), firewall, reconciler, audit log, LLM containment, determinism, Phase 5, PDF parse, rule extractors, and all bonus features (replay, DSL, narrative retrieval).
@@ -153,7 +154,7 @@ config/firm_b.yaml ────┘                                              
 | test_cli.py | 30 | CLI commands, exit codes |
 | test_graph_builder.py | 30 | Neo4j node/relationship loading |
 | test_graph_queries.py | 23 | Cypher query selectors |
-| test_engine_firm_a.py | 23 | 13 figures Firm A |
+| test_engine_firm_a.py | 24 | 13 figures Firm A (+ bounds-completeness gate) |
 | test_firewall.py | 18 | Numeric token firewall |
 | test_evaluate.py | 18 | Phase 5 gate |
 | test_holdings_parser.py | 17 | CSV → PositionRecord |
@@ -164,7 +165,7 @@ config/firm_b.yaml ────┘                                              
 | test_report_writer.py | 10 | xlsx report writing |
 | test_narrative_retrieval.py | 10 | Passage retrieval for LLM |
 | test_dsl.py | 10 | DSL generate + preview |
-| test_replay.py | 8 | Replay viewer |
+| test_replay.py | 9 | Replay viewer (Firm A/B/C delta) |
 | test_registry.py | 8 | Figure registry |
 | test_config_loader.py | 8 | Pydantic config loading |
 | test_verify_gate.py | 7 | PENDING_REVIEW gate |
@@ -178,7 +179,7 @@ config/firm_b.yaml ────┘                                              
 | test_readme.py | 4 | README coverage |
 | test_phase5.py | 4 | Phase 5 integration |
 | test_rule_extractors.py | 1 | Prose-rule regex extractors |
-| **Total** | **360** | |
+| **Total** | **362** | |
 
 ### 3.2 Firm A — 13 Computed Figures
 
@@ -602,7 +603,7 @@ sample_docs/
 tests/
 ├── fixtures/
 │   └── parsed_guidelines.json  # Golden snapshot of real PDF parse output (guards C1)
-└── test_*.py                   # 29 test files, 360 tests total
+└── test_*.py                   # 29 test files, 362 tests total
 out/
 ├── figures_firm_a.json         # Last computed Firm A figures (provenance included)
 ├── figures_firm_b.json         # Last computed Firm B figures
@@ -631,11 +632,11 @@ src/audit/__init__.py                    0      0   100%
 src/audit/log.py                        54      2    96%   103, 203
 src/cli/__init__.py                      0      0   100%
 src/cli/commands/__init__.py             0      0   100%
-src/cli/commands/replay_helpers.py      78      5    94%   49, 65, 108, 128, 161
+src/cli/commands/replay_helpers.py      84      7    92%   49, 65, 101-103, 111-112, 139
 src/cli/main.py                        454    156    66%   46, 71-72, 90, 108-115, 162-192, 217-221, 245-247, 287-288, 307-309, 320, 335, 346-347, 368-370, 382-385, 389-390, 394-395, 403-404, 407-428, 444, 487-491, 499-528, 576-611, 620-654, 742-745, 780
 src/compute/__init__.py                  0      0   100%
 src/compute/config_loader.py            43      1    98%   50
-src/compute/engine.py                  208     11    95%   91, 104, 151, 162, 181, 184, 223, 272, 290, 322, 381
+src/compute/engine.py                  211     11    95%   101, 114, 166, 177, 200, 203, 242, 291, 309, 341, 400
 src/compute/primitives.py               66      0   100%
 src/compute/registry.py                 23      0   100%
 src/firewall/__init__.py                 0      0   100%
@@ -657,11 +658,11 @@ src/reconcile/reconciler.py             71      3    96%   67, 72, 144
 src/report/__init__.py                   0      0   100%
 src/report/writer.py                    86      0   100%
 ------------------------------------------------------------------
-TOTAL                                 1633    211    87%
-360 passed in 24.37s
+TOTAL                                 1642    213    87%
+362 passed in 21.98s
 ```
 
-**Total coverage: 87%.** The 360/360 tests all pass.
+**Total coverage: 87%.** The 362/362 tests all pass.
 
 The uncovered 13% is concentrated in two deliberate areas — not gaps in test discipline:
 

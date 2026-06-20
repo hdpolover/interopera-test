@@ -339,7 +339,7 @@ assert logger.verify_chain()
 │   └── report/                # xlsx report writer
 ├── bin/
 │   └── fundra                 # Shell wrapper — use instead of full docker compose run
-├── tests/                     # Full test suite (360 tests across 29 files)
+├── tests/                     # Full test suite (362 tests across 29 files)
 ├── docker-compose.yml
 ├── init.sql                   # Postgres schema + append-only trigger
 └── .env.example               # Port override documentation
