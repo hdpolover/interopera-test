@@ -465,11 +465,21 @@ def narrate(
         str(CONFIG_DIR / f"{firm_id}.yaml"),
     )
     driver = _get_driver()
-    figures = ComputeEngine(driver, config).run_all()
 
-    narrator = Narrator(api_key=os.environ.get("ANTHROPIC_API_KEY"), driver=driver)
-    narrative = narrator.write_narrative(figures, firm_id=firm_id)
-    fw_result = check_firewall(narrative, figures)
+    with console.status("[cyan]Computing figures…[/cyan]", spinner="dots"):
+        figures = ComputeEngine(driver, config).run_all()
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    spinner_label = f"[cyan]Generating narrative with {model}…[/cyan]" if api_key else "[cyan]Generating narrative (stub mode)…[/cyan]"
+
+    narrator = Narrator(api_key=api_key, driver=driver)
+    with console.status(spinner_label, spinner="dots"):
+        narrative = narrator.write_narrative(figures, firm_id=firm_id)
+
+    with console.status("[cyan]Running firewall check…[/cyan]", spinner="dots"):
+        fw_result = check_firewall(narrative, figures)
+
     driver.close()
 
     console.print(narrative)
