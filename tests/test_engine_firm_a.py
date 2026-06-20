@@ -292,3 +292,36 @@ def test_bounds_come_from_graph_not_config(firm_a_engine_result, monkeypatch):
     # Verify value is as expected (35.0%) - bounds from graph must match
     assert sgs["value"] == "35.0%"
     assert sgs["status"] == "OK"
+
+
+def test_missing_threshold_bound_yields_error_figure(driver, firm_a_engine):
+    """A figure whose graph Threshold is missing a required bound must return an
+    ERROR figure, not crash with KeyError (external-data boundary hardening).
+
+    allocation_sgs uses within_min_max, which needs both min and max. Removing
+    max_value from its Threshold must route the figure to ERROR.
+    """
+    from src.compute.registry import FIGURE_REGISTRY
+
+    spec = next(s for s in FIGURE_REGISTRY if s.id == "allocation_sgs")
+
+    with driver.session() as session:
+        original_max = session.run(
+            "MATCH (:Limit {ref:'allocation_sgs_limit'})-[:HAS_THRESHOLD]->(t:Threshold) "
+            "RETURN t.max_value AS mx"
+        ).single()["mx"]
+        session.run(
+            "MATCH (:Limit {ref:'allocation_sgs_limit'})-[:HAS_THRESHOLD]->(t:Threshold) "
+            "REMOVE t.max_value"
+        )
+    try:
+        fig = firm_a_engine.compute_figure(spec)
+        assert fig.status == "ERROR", f"expected ERROR, got {fig.status}"
+        assert fig.value == "ERROR"
+    finally:
+        with driver.session() as session:
+            session.run(
+                "MATCH (:Limit {ref:'allocation_sgs_limit'})-[:HAS_THRESHOLD]->(t:Threshold) "
+                "SET t.max_value = $v",
+                v=original_max,
+            )

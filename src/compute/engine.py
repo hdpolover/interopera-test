@@ -19,6 +19,16 @@ from src.graph import queries
 from src.graph.constants import ASSET_CLASS_SLUG as _ASSET_CLASS_SLUG
 from src.graph.queries import limit_bounds_for_ref
 
+# Required Threshold bound keys per comparator. A figure whose graph Threshold
+# is missing any of these cannot be soundly evaluated, so it is returned as an
+# ERROR figure rather than crashing — the same "never trust external data at the
+# boundary" rule that governs the citation and PENDING_REVIEW gates.
+_REQUIRED_BOUNDS: dict[str, tuple[str, ...]] = {
+    "within_min_max": ("min", "max"),
+    "max_cap": ("cap",),
+    "min_floor": ("floor",),
+}
+
 
 class ComputeEngine:
     """Compute all 13 compliance figures by traversing the Neo4j graph."""
@@ -137,10 +147,15 @@ class ComputeEngine:
         member_ids = [p.get("instrument_id", "UNKNOWN") for p in all_groups[gname]]
         return gpct, gname, group_key, member_ids
 
-    def _apply_comparator(self, spec: FigureSpec, value: Decimal) -> str:
-        """Apply comparator to produce OK/BREACH/AT LIMIT."""
+    def _apply_comparator(
+        self, spec: FigureSpec, value: Decimal, bounds: dict[str, Decimal]
+    ) -> str:
+        """Apply comparator to produce OK/BREACH/AT LIMIT.
+
+        `bounds` is resolved once by the caller; completeness for the comparator
+        is verified by compute_figure before this is called.
+        """
         comp = spec.comparator
-        bounds = self._bounds(spec)
 
         if comp == "within_min_max":
             return within_min_max(value, bounds["min"], bounds["max"])
@@ -161,10 +176,14 @@ class ComputeEngine:
             return sgd_dv01(value)
         return str(value)
 
-    def _compute_utilization(self, spec: FigureSpec, value: Decimal) -> str:
-        """Compute utilization string based on utilization_basis and config format."""
+    def _compute_utilization(
+        self, spec: FigureSpec, value: Decimal, bounds: dict[str, Decimal]
+    ) -> str:
+        """Compute utilization string based on utilization_basis and config format.
+
+        `bounds` is resolved once by the caller (shared with the comparator).
+        """
         basis = spec.utilization_basis
-        bounds = self._bounds(spec)
         util_fmt = self._config.output.utilization_format
 
         if basis == "none":
@@ -402,9 +421,22 @@ class ComputeEngine:
             return resolved
         value, positions, group_name, group_key, member_ids = resolved
 
-        status = self._apply_comparator(spec, value)
+        # Resolve the figure's bounds from the graph once, and verify the
+        # comparator's required keys are present. A missing/partial Threshold is
+        # untrustworthy external data → ERROR figure, not a crash or wrong status.
+        bounds = self._bounds(spec)
+        required = _REQUIRED_BOUNDS.get(spec.comparator, ())
+        if not all(key in bounds for key in required):
+            return Figure(
+                figure=spec.id, value="ERROR", utilization="n/a", status="ERROR",
+                limit=spec.limit_display,
+                graph_path=f"missing or partial Threshold bounds for {spec.limit_ref}",
+                citation=citation,
+            )
+
+        status = self._apply_comparator(spec, value, bounds)
         formatted_value = self._apply_formatter(spec, value)
-        utilization = self._compute_utilization(spec, value)
+        utilization = self._compute_utilization(spec, value, bounds)
         non_ig_ac_names: list[str] = (
             self._fetch_non_ig_ac_names() if spec.selector == "positions_matching" else []
         )
