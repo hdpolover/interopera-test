@@ -172,6 +172,13 @@ def _build_computed_set(figures: list[Figure]) -> set[str]:
                 norm = normalize_token(raw)
                 if norm:
                     computed.add(norm)
+                    # Allow both "12" and "12.0" to match each other.
+                    # An LLM may write "12.0%" for a limit stored as "12%";
+                    # these are numerically identical so both forms are valid.
+                    if norm.endswith(".0") and "." not in norm[:-2]:
+                        computed.add(norm[:-2])   # "12.0" → also admit "12"
+                    elif "." not in norm:
+                        computed.add(norm + ".0")  # "12"   → also admit "12.0"
 
     return computed
 
