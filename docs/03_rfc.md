@@ -55,7 +55,7 @@ These constraints were established by the compliance and engineering teams joint
 
 **From C4** → `reconciler.py` loads the answer key and compares figures. The reconciliation result is written to the audit log as a `reconciliation` event. Runs that fail reconciliation are flagged and do not overwrite the previous accepted output.
 
-**From C5** → All firm-specific parameters (figure definitions, aggregator assignments, limit identifiers, answer key path, tolerance) are declared in YAML. The `config_loader.py` resolves a `FirmConfig` object from the YAML. Switching firms requires only `--firm firm_b` on the CLI.
+**From C5** → The only firm-specific parameters are the three house-convention knobs (`include_fallen_angels`, `group_key`, `utilization_format`), declared in a per-firm YAML overlay. Figure definitions live in `registry.py` and limit values on graph `Threshold` nodes — neither is firm-specific. `config_loader.py` resolves a `FirmConfig` from the overlay. Switching firms requires only `--firm B` on the CLI.
 
 ---
 
@@ -179,20 +179,12 @@ A regulator with access to the Neo4j database and the source PDF can reconstruct
 
 ## 7. Config System and Firm B
 
-All 13 figure definitions, limit labels, aggregator assignments, and source bindings live in a shared `base.yaml`. Firm-specific files set **only** the three knobs that vary between firms; everything else is inherited via deep-merge.
+The 13 figure definitions (selector, aggregator, comparator, formatter, `limit_ref`) live in code, in `src/compute/registry.py:FIGURE_REGISTRY`. The **limit values** themselves are not in config at all — they are parsed from the guidelines PDF into graph `Threshold` nodes and read at compute time via `(Limit {ref})-[:HAS_THRESHOLD]->(Threshold)`. Config therefore carries only the three house-convention knobs; firm-specific files set those, and `base.yaml` holds nothing else.
 
 ```yaml
-# config/base.yaml  — shared by all firms; knobs left unset
-firm_id: ~                              # overridden by firm overlay
-non_ig:
-  include_fallen_angels: ~             # knob 1 — unset; must be overridden
-concentration:
-  gre:
-    group_key: ~                       # knob 2 — unset; must be overridden
-output:
-  utilization_format: ~               # knob 3 — unset; must be overridden
-# all 13 figure definitions with limit/source bindings live in base.yaml
-# (abbreviated for readability)
+# config/base.yaml  — shared by all firms; holds no limit values
+# (limit values live on graph Threshold nodes, parsed from the PDF — see §6 Traceability)
+# firm overlays supply the three knobs below.
 ```
 
 ```yaml
@@ -231,11 +223,12 @@ output:
 effective = deep_merge(base, firm_overlay)
 ```
 
-All 13 figure definitions and limit/source bindings come from `base.yaml`. Only the three knobs listed above are touched by firm overlays.
+Figure definitions come from `registry.py`; limit values come from graph `Threshold` nodes (parsed from the PDF). `base.yaml` holds no limit values — only the three knobs listed above are touched by firm overlays.
 
 Answer keys live in:
 - Firm A: `sample_docs/firm_A_answer_key.xlsx` (XLSX, loaded by `reconciler.py`)
 - Firm B: `config/firm_b_expected.yaml` (YAML, loaded by `reconciler.py`)
+- Firm C: `config/firm_c_expected.yaml` (YAML, loaded by `reconciler.py`)
 
 To onboard a new firm:
 

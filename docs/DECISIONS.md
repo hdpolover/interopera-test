@@ -372,7 +372,7 @@ Reproducibility is enforced by a committed golden snapshot: `tests/fixtures/pars
 - Make every chunk high-confidence so the graph loads fully VERIFIED — rejected because the human-verification gate would never fire in a live demo; the mechanism would be tested but never shown.
 - Make one of the 13 reported figures low-confidence — rejected because a `PENDING_REVIEW` node that anchors a figure blocks that figure (returns `status="ERROR"`), which would break Firm A/B reconciliation until approved.
 
-**Rationale:** The `build-graph → verify-graph --approve-all → run` workflow is real, not theoretical: a reviewer sees exactly one node pending human sign-off, approves it, and the audit log records a `node_verified` event with the approving actor. The 13 figures compute regardless of whether it is approved, so reproducibility and reconciliation are unaffected.
+**Rationale:** The `build-graph → verify-graph --approve-all → run` workflow is real, not theoretical: a reviewer sees the one low-confidence counterparty rule pending human sign-off (it materialises as three `PENDING_REVIEW` nodes — its `Limit`, `SourceChunk`, and `Threshold`, all at confidence 0.80), approves them, and the audit log records a `node_verified` event with the approving actor. The 13 figures compute regardless of whether it is approved, so reproducibility and reconciliation are unaffected.
 
 ---
 
