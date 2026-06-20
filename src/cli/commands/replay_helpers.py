@@ -45,11 +45,12 @@ FIGURE_ID_TO_METRICS: dict[str, list[str]] = {
 from src.compute.registry import FIGURE_REGISTRY as _REGISTRY  # noqa: E402
 
 _REGISTRY_IDS = {spec.id for spec in _REGISTRY}
-assert set(FIGURE_ID_TO_METRICS.keys()) == _REGISTRY_IDS, (
-    f"FIGURE_ID_TO_METRICS out of sync with FIGURE_REGISTRY.\n"
-    f"  Missing from mapping : {_REGISTRY_IDS - set(FIGURE_ID_TO_METRICS.keys())}\n"
-    f"  Stale in mapping     : {set(FIGURE_ID_TO_METRICS.keys()) - _REGISTRY_IDS}"
-)
+if set(FIGURE_ID_TO_METRICS.keys()) != _REGISTRY_IDS:
+    raise ValueError(
+        f"FIGURE_ID_TO_METRICS out of sync with FIGURE_REGISTRY.\n"
+        f"  Missing from mapping : {_REGISTRY_IDS - set(FIGURE_ID_TO_METRICS.keys())}\n"
+        f"  Stale in mapping     : {set(FIGURE_ID_TO_METRICS.keys()) - _REGISTRY_IDS}"
+    )
 
 # Config knobs that affect each figure.
 FIGURE_CONFIG_KNOBS: dict[str, list[str]] = {
@@ -94,21 +95,24 @@ def _print_delta_firm_a(figure: str, match: dict, xlsx_path: Path) -> None:
     import openpyxl
 
     wb = openpyxl.load_workbook(str(xlsx_path), read_only=True)
-    ws = wb.active
-    headers: Optional[list[str]] = None
-    metric_names = FIGURE_ID_TO_METRICS.get(figure, [])
-    expected_value: Optional[str] = None
-    for row in ws.iter_rows(values_only=True):
-        if headers is None:
-            headers = [str(c).strip() if c is not None else "" for c in row]
-            continue
-        if all(c is None for c in row):
-            continue
-        row_dict = dict(zip(headers, row))
-        metric = str(row_dict.get("Metric", "") or "").strip()
-        if metric in metric_names:
-            expected_value = str(row_dict.get("Value", "") or "").strip()
-            break
+    try:
+        ws = wb.active
+        headers: Optional[list[str]] = None
+        metric_names = FIGURE_ID_TO_METRICS.get(figure, [])
+        expected_value: Optional[str] = None
+        for row in ws.iter_rows(values_only=True):
+            if headers is None:
+                headers = [str(c).strip() if c is not None else "" for c in row]
+                continue
+            if all(c is None for c in row):
+                continue
+            row_dict = dict(zip(headers, row))
+            metric = str(row_dict.get("Metric", "") or "").strip()
+            if metric in metric_names:
+                expected_value = str(row_dict.get("Value", "") or "").strip()
+                break
+    finally:
+        wb.close()
     if expected_value is not None:
         computed_value = match.get("value", "N/A")
         exp_num = parse_numeric(expected_value)

@@ -142,6 +142,92 @@ def test_traceability_fails_for_missing_chunk_id():
     assert not bad_fig.citation.get("chunk_id")
 
 
+def test_empty_group_produces_error_figure():
+    """Fix #7: _compute_group_value returns None when no groups → compute_figure routes to ERROR.
+
+    Regression guard: previously returned Decimal('0') producing a spurious BREACH.
+    """
+    from unittest.mock import MagicMock
+    from src.compute.engine import ComputeEngine
+    from src.compute.config_loader import FirmConfig, NonIgConfig, GREConfig, ConcentrationConfig, OutputConfig
+    from src.compute.registry import FigureSpec, Figure
+    from decimal import Decimal
+
+    config = FirmConfig(
+        firm_id="firm_test",
+        non_ig=NonIgConfig(include_fallen_angels=False),
+        concentration=ConcentrationConfig(gre=GREConfig(group_key="issuer")),
+        output=OutputConfig(utilization_format="percent_1dp"),
+        limits={
+            "allocation_sgs": {"min_pct": 0.20, "max_pct": 0.60},
+            "allocation_mas_bills": {"min_pct": 0.00, "max_pct": 0.40},
+            "allocation_ig_corp": {"min_pct": 0.10, "max_pct": 0.50},
+            "allocation_high_yield": {"min_pct": 0.00, "max_pct": 0.15},
+            "allocation_fx_bonds": {"min_pct": 0.00, "max_pct": 0.20},
+            "allocation_structured_credit": {"min_pct": 0.00, "max_pct": 0.10},
+            "allocation_cash": {"min_pct": 0.05},
+            "aggregate_non_ig_exposure": {"max_pct": 0.20},
+            "largest_single_corporate_issuer": {"max_pct": 0.08},
+            "largest_gre_issuer": {"max_pct": 0.12},
+            "liquid_assets_ratio": {"min_pct": 0.25},
+            "portfolio_duration": {"min_years": 2.0, "max_years": 6.5},
+            "portfolio_dv01": {"max_sgd": 85000},
+        },
+    )
+
+    # Mock driver: citation query returns a valid chunk, pending check returns no pending nodes
+    citation_record = {"chunk_id": "cid", "source_doc": "test.pdf", "page": 1, "passage_summary": "test"}
+    pending_record = {"cnt": 0}
+
+    call_count = [0]
+
+    def mock_run(query, **kwargs):
+        result = MagicMock()
+        if "PENDING_REVIEW" in query and "count" in query:
+            result.single.return_value = pending_record
+        else:
+            result.single.return_value = citation_record
+        result.__iter__ = MagicMock(return_value=iter([]))
+        return result
+
+    mock_session = MagicMock()
+    mock_session.run.side_effect = mock_run
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=False)
+
+    mock_driver = MagicMock()
+    mock_driver.session.return_value = mock_session
+
+    from src.graph import queries as gq
+    original_positions_by_issuer = gq.positions_by_issuer
+    original_all_positions = gq.all_positions
+    gq.positions_by_issuer = MagicMock(return_value={})  # empty groups
+    gq.all_positions = MagicMock(return_value=[{"market_value_sgd": "100000000", "modified_duration": "3.0"}])
+
+    try:
+        engine = ComputeEngine(mock_driver, config)
+        engine._nav = Decimal("100000000")
+        spec = FigureSpec(
+            id="largest_single_corporate_issuer",
+            selector="positions_by_issuer",
+            predicate={"group_key": "issuer", "issuer_type_filter": "corporate"},
+            aggregator="max_group_pct",
+            limit_ref="corporate_issuer_limit",
+            comparator="max_cap",
+            formatter="percent_1dp",
+            limit_display="max 8%",
+            utilization_basis="cap",
+        )
+        figure = engine.compute_figure(spec)
+        assert figure.status == "ERROR", (
+            f"Expected ERROR for empty groups, got {figure.status!r} with value {figure.value!r}"
+        )
+        assert figure.value == "ERROR"
+    finally:
+        gq.positions_by_issuer = original_positions_by_issuer
+        gq.all_positions = original_all_positions
+
+
 def test_reconcile_13_figures_from_data():
     """Verify FIRM_A_FIGURES_DATA contains exactly 13 entries with unique figure IDs."""
     assert len(FIRM_A_FIGURES_DATA) == 13

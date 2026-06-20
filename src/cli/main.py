@@ -7,9 +7,11 @@ the test suite (OUT_DIR, SAMPLE_DOCS, CONFIG_DIR, command functions).
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Optional
 
@@ -29,7 +31,8 @@ console = Console()
 REPO_ROOT = Path(__file__).parent.parent.parent
 CONFIG_DIR = REPO_ROOT / "config"
 SAMPLE_DOCS = REPO_ROOT / "sample_docs"
-OUT_DIR = REPO_ROOT / "out"
+# Output location is deployment-specific; override with FUNDRA_OUT_DIR.
+OUT_DIR = Path(os.environ.get("FUNDRA_OUT_DIR", str(REPO_ROOT / "out")))
 
 
 def _get_driver() -> Any:  # neo4j.Driver; annotated Any to avoid top-level import of optional dep
@@ -38,8 +41,20 @@ def _get_driver() -> Any:  # neo4j.Driver; annotated Any to avoid top-level impo
 
     uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
     user = os.environ.get("NEO4J_USER", "neo4j")
-    password = os.environ.get("NEO4J_PASSWORD", "password")
+    password = os.environ.get("NEO4J_PASSWORD")
+    if password is None:
+        raise RuntimeError("NEO4J_PASSWORD environment variable is not set")
     return GraphDatabase.driver(uri, auth=(user, password))
+
+
+@contextmanager
+def _driver_session():  # type: ignore[return]
+    """Context manager that opens a Neo4j driver and ensures it is closed on exit."""
+    driver = _get_driver()
+    try:
+        yield driver
+    finally:
+        driver.close()
 
 
 def _make_audit_logger() -> Optional[Any]:  # Optional[AuditLogger]; imported lazily
@@ -165,6 +180,40 @@ def verify_graph(
         audit.close()
 
 
+def _compute_figures(driver: Any, config: Any) -> list:
+    """Run ComputeEngine and return all computed figures."""
+    from src.compute.engine import ComputeEngine
+
+    return ComputeEngine(driver, config).run_all()
+
+
+def _write_figures_json(figures: list, firm_id: str, out_dir: Path) -> tuple:
+    """Serialize figures to JSON and write to out_dir. Returns (figures_data, figures_path)."""
+    figures_data = [
+        {"figure": f.figure, "value": f.value, "utilization": f.utilization,
+         "status": f.status, "limit": f.limit, "graph_path": f.graph_path,
+         "citation": f.citation}
+        for f in figures
+    ]
+    figures_path = out_dir / f"figures_{firm_id}.json"
+    figures_path.write_text(json.dumps(figures_data, indent=2, sort_keys=True))
+    return figures_data, figures_path
+
+
+def _display_figures_table(figures: list) -> None:
+    """Print a Rich table of figure results to the console."""
+    table = Table("Figure", "Value", "Status", "Limit")
+    for f in figures:
+        color = "red" if f.status == "BREACH" else ("yellow" if f.status == "AT LIMIT" else "green")
+        table.add_row(f.figure, f.value, f"[{color}]{f.status}[/{color}]", f.limit)
+    console.print(table)
+
+
+def _run_traceability_check(figures: list) -> list:
+    """Return figures that are missing a graph_path or chunk_id citation."""
+    return [f for f in figures if not f.graph_path or not (f.citation or {}).get("chunk_id")]
+
+
 @app.command(name="run")
 def run_cmd(
     firm: str = typer.Option(..., help="Firm ID: A, B, or C"),
@@ -172,7 +221,6 @@ def run_cmd(
 ) -> None:
     """Compute all 13 compliance figures and write report."""
     from src.compute.config_loader import load_config, effective_config_hash
-    from src.compute.engine import ComputeEngine
     from src.report.writer import write_report
 
     firm_id = f"firm_{firm.lower()}"
@@ -195,19 +243,11 @@ def run_cmd(
         config_hash=cfg_hash,
     )
 
-    driver = _get_driver()
-    engine = ComputeEngine(driver, config)
-    figures = engine.run_all()
+    with _driver_session() as driver:
+        figures = _compute_figures(driver, config)
 
     OUT_DIR.mkdir(exist_ok=True)
-    figures_data = [
-        {"figure": f.figure, "value": f.value, "utilization": f.utilization,
-         "status": f.status, "limit": f.limit, "graph_path": f.graph_path,
-         "citation": f.citation}
-        for f in figures
-    ]
-    figures_path = OUT_DIR / f"figures_{firm_id}.json"
-    figures_path.write_text(json.dumps(figures_data, indent=2, sort_keys=True))
+    figures_data, figures_path = _write_figures_json(figures, firm_id, OUT_DIR)
 
     for f in figures:
         _audit_log(
@@ -232,14 +272,8 @@ def run_cmd(
     if output_json:
         typer.echo(json.dumps(figures_data, indent=2))
     else:
-        table = Table("Figure", "Value", "Status", "Limit")
-        for f in figures:
-            color = "red" if f.status == "BREACH" else ("yellow" if f.status == "AT LIMIT" else "green")
-            table.add_row(f.figure, f.value, f"[{color}]{f.status}[/{color}]", f.limit)
-        console.print(table)
+        _display_figures_table(figures)
         console.print(f"Report written to {report_path}")
-
-    driver.close()
 
 
 @app.command()
@@ -249,7 +283,6 @@ def reconcile(
 ) -> None:
     """Reconcile computed figures against firm answer key."""
     from src.compute.config_loader import load_config
-    from src.compute.engine import ComputeEngine
     from src.reconcile.reconciler import reconcile as do_reconcile, parse_answer_key_xlsx, parse_expected_yaml
 
     firm_id = f"firm_{firm.lower()}"
@@ -266,9 +299,8 @@ def reconcile(
     run_id = str(uuid.uuid4())
     audit = _make_audit_logger()
 
-    driver = _get_driver()
-    figures = ComputeEngine(driver, config).run_all()
-    driver.close()
+    with _driver_session() as driver:
+        figures = _compute_figures(driver, config)
 
     if firm.upper() == "A":
         expected = parse_answer_key_xlsx(str(SAMPLE_DOCS / "firm_A_answer_key.xlsx"))
@@ -286,7 +318,7 @@ def reconcile(
         audit.close()
 
     if output_json:
-        console.print(json.dumps([r.__dict__ for r in results], indent=2))
+        console.print(json.dumps([dataclasses.asdict(r) for r in results], indent=2))
     else:
         table = Table("Figure", "Expected", "Computed", "Status", "Delta")
         for r in results:
@@ -308,7 +340,6 @@ def evaluate(
 ) -> None:
     """Full Phase 5: reconcile + traceability + firewall + determinism."""
     from src.compute.config_loader import load_config
-    from src.compute.engine import ComputeEngine
     from src.reconcile.reconciler import reconcile as do_reconcile, parse_answer_key_xlsx, parse_expected_yaml
     from src.firewall.checker import check_firewall
     from src.narrative.narrator import Narrator
@@ -327,9 +358,8 @@ def evaluate(
     run_id = str(uuid.uuid4())
     audit = _make_audit_logger()
 
-    driver = _get_driver()
-    figures = ComputeEngine(driver, config).run_all()
-    driver.close()
+    with _driver_session() as driver:
+        figures = _compute_figures(driver, config)
 
     exit_code = 0
 
@@ -343,7 +373,7 @@ def evaluate(
         exit_code = 1
         console.print(f"[red]Reconcile FAIL: {len(recon_failed)} figures mismatch[/red]")
 
-    trace_failed = [f for f in figures if not f.graph_path or not f.citation.get("chunk_id")]
+    trace_failed = _run_traceability_check(figures)
     if trace_failed:
         exit_code = 1
         console.print(f"[red]Traceability FAIL: {[f.figure for f in trace_failed]}[/red]")
@@ -364,8 +394,8 @@ def evaluate(
             "reconcile": {
                 "passed": len(recon_failed) == 0,
                 "total": len(recon_results),
-                "failed": [r.__dict__ for r in recon_failed],
-                "results": [r.__dict__ for r in recon_results],
+                "failed": [dataclasses.asdict(r) for r in recon_failed],
+                "results": [dataclasses.asdict(r) for r in recon_results],
             },
             "traceability": {
                 "passed": len(trace_failed) == 0,
@@ -414,19 +444,15 @@ def verify_determinism(
     """Run engine twice and assert byte-identical figures.json output."""
     import difflib
     from src.compute.config_loader import load_config
-    from src.compute.engine import ComputeEngine
 
     firm_id = f"firm_{firm.lower()}"
     config = load_config(
         str(CONFIG_DIR / "base.yaml"),
         str(CONFIG_DIR / f"{firm_id}.yaml"),
     )
-    driver = _get_driver()
-    engine = ComputeEngine(driver, config)
-
-    run1 = engine.run_all()
-    run2 = engine.run_all()
-    driver.close()
+    with _driver_session() as driver:
+        run1 = _compute_figures(driver, config)
+        run2 = _compute_figures(driver, config)
 
     def to_json(figs: list) -> str:
         return json.dumps(
@@ -455,8 +481,7 @@ def narrate(
 ) -> None:
     """Generate narrative and run firewall check."""
     from src.compute.config_loader import load_config
-    from src.compute.engine import ComputeEngine
-    from src.narrative.narrator import Narrator
+    from src.narrative.narrator import Narrator, DEFAULT_ANTHROPIC_MODEL
     from src.firewall.checker import check_firewall
 
     firm_id = f"firm_{firm.lower()}"
@@ -464,23 +489,20 @@ def narrate(
         str(CONFIG_DIR / "base.yaml"),
         str(CONFIG_DIR / f"{firm_id}.yaml"),
     )
-    driver = _get_driver()
+    with _driver_session() as driver:
+        with console.status("[cyan]Computing figures…[/cyan]", spinner="dots"):
+            figures = _compute_figures(driver, config)
 
-    with console.status("[cyan]Computing figures…[/cyan]", spinner="dots"):
-        figures = ComputeEngine(driver, config).run_all()
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        model = os.environ.get("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL)
+        spinner_label = f"[cyan]Generating narrative with {model}…[/cyan]" if api_key else "[cyan]Generating narrative (stub mode)…[/cyan]"
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-    spinner_label = f"[cyan]Generating narrative with {model}…[/cyan]" if api_key else "[cyan]Generating narrative (stub mode)…[/cyan]"
-
-    narrator = Narrator(api_key=api_key, driver=driver)
-    with console.status(spinner_label, spinner="dots"):
-        narrative = narrator.write_narrative(figures, firm_id=firm_id)
+        narrator = Narrator(api_key=api_key, driver=driver)
+        with console.status(spinner_label, spinner="dots"):
+            narrative = narrator.write_narrative(figures, firm_id=firm_id)
 
     with console.status("[cyan]Running firewall check…[/cyan]", spinner="dots"):
         fw_result = check_firewall(narrative, figures)
-
-    driver.close()
 
     console.print(narrative)
     if fw_result.passed:
@@ -606,7 +628,7 @@ def show_audit_log(
 
         if verify:
             valid = logger.verify_chain()
-            total = len(logger.list_events(limit=10_000))
+            total = len(events)
             if valid:
                 console.print(f"[green]Chain integrity: VALID ({total} events verified)[/green]")
             else:
@@ -657,7 +679,7 @@ def preview_config(
 ) -> None:
     """Parse DSL, validate, run compute engine, print figures vs Firm A baseline."""
     import yaml as _yaml
-    from src.compute.config_loader import FirmConfig, _deep_merge
+    from src.compute.config_loader import FirmConfig, merge_configs
     from src.compute.engine import ComputeEngine
 
     dsl_path = Path(dsl)
@@ -687,7 +709,7 @@ def preview_config(
         override["concentration"] = {"gre": {"group_key": group_key}}
     if utilization_format is not None:
         override["output"] = {"utilization_format": utilization_format}
-    merged = _deep_merge(merged, override)
+    merged = merge_configs(merged, override)
 
     try:
         config = FirmConfig(**merged)
