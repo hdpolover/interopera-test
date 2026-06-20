@@ -84,8 +84,10 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - run: pip install ruff mypy
+      - run: pip install ruff mypy bandit
 
       - run: python -m ruff check src/ tests/
 
       - run: python -m mypy src/ --ignore-missing-imports
+
+      - run: bandit -r src/ -ll

@@ -18,28 +18,11 @@ import os
 import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-NEO4J_URI = os.environ.get("NEO4J_TEST_URI", "bolt://localhost:7687")
-NEO4J_USER = os.environ.get("NEO4J_TEST_USER", "neo4j")
-NEO4J_PASS = os.environ.get("NEO4J_TEST_PASSWORD", "password")
 
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def driver():
-    """Open a Neo4j driver; skip the whole module if Neo4j is unavailable."""
-    try:
-        from neo4j import GraphDatabase
-
-        drv = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
-        drv.verify_connectivity()
-        yield drv
-        drv.close()
-    except Exception as exc:
-        pytest.skip(f"Neo4j not available: {exc}")
 
 
 @pytest.fixture(scope="module")
