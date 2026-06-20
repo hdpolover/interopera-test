@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Thin wrapper — resolves repo root from the script location so the command
+# works from any directory, not just the repo root.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO" && docker compose run --rm app python -m src.cli.main "$@"
