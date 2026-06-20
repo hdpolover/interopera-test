@@ -95,7 +95,7 @@ def diagram_flow():
     box(ax, 3.25, y2, 4.2, BH, 'holdings_parser.py',
         fc=BLUE_LT, ec=BLUE)
     box(ax, 9.75, y2, 4.2, BH, 'guidelines_parser.py',
-        sublabel='(LLM-optional stub)',
+        sublabel='deterministic pdfplumber parse',
         fc=BLUE_LT, ec=BLUE)
     arr(ax, COL[0], y1 - BH / 2, 3.25, y2 + BH / 2)
     arr(ax, COL[1], y1 - BH / 2, 9.75, y2 + BH / 2)
@@ -105,7 +105,7 @@ def diagram_flow():
     y3 = 11.8
     section(y3, 'GRAPH')
     box(ax, 6.5, y3, 10.8, BH + 0.15, 'Neo4j Knowledge Graph',
-        sublabel='11 node types  ·  MERGE idempotent  ·  provenance on every node',
+        sublabel='11 node types  ·  limit values on Threshold nodes  ·  provenance on every node',
         fc=BLUE_LT, ec=BLUE, lw=1.5, fontsize=10.5)
     arr(ax, 3.25, y2 - BH / 2, 4.5, y3 + (BH + 0.15) / 2)
     arr(ax, 9.75, y2 - BH / 2, 8.5, y3 + (BH + 0.15) / 2)
@@ -142,7 +142,7 @@ def diagram_flow():
     ax.text(7.1, y5 + 0.62, 'LLM BOUNDARY', ha='center',
             color=RED, fontsize=7.5, fontweight='bold', zorder=5)
     box(ax, 7.1, y5, 3.4, BH, 'narrator.py',
-        sublabel='stub or claude-haiku',
+        sublabel='stub or claude-sonnet-4-6',
         fc=RED_LT, ec=RED, fontsize=8.5)
 
     # Firewall
@@ -239,6 +239,7 @@ def diagram_layers():
             ha='left', va='center', color=GRAY, fontsize=8, fontweight='bold')
 
     # ── Data rows — fixed bottom y for each ────────────────────────────────────
+    # Order matches the canonical six gates in docs/03_rfc.md §4 and DECISIONS §3.
     gates = [
         ('Static Import Gate',
          'No `import anthropic` in src/compute/',
@@ -249,15 +250,15 @@ def diagram_layers():
         ('Report-From-Figures-Only Gate',
          'write_report(figures, path) — no narrative arg',
          'src/report/writer.py'),
-        ('Human-Approval Gate',
-         'PENDING_REVIEW nodes block compute until approved',
-         'engine.py Gate 1 + Gate 2'),
-        ('Reconcile Gate',
-         'Reconciler has no LLM imports — all deterministic Python',
-         'src/reconcile/reconciler.py'),
-        ('Numeric Token Firewall',
+        ('Output Firewall',
          'Every narrative number checked against computed set',
          'src/firewall/checker.py — _NUMBER_RE + symmetric norm'),
+        ('Human-Approval Gate',
+         'PENDING_REVIEW nodes block compute until approved',
+         'engine.py _check_gates + _check_limit_node_pending'),
+        ('Pure-Code Phase 5',
+         'Reconciler & firewall have no LLM imports — deterministic Python',
+         'src/reconcile/reconciler.py + src/firewall/checker.py'),
     ]
 
     ROW_H   = 1.05   # each row height
