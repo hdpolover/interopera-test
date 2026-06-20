@@ -11,7 +11,7 @@ This report documents live verification of the InterOpera fund compliance report
 
 **Code quality:** 84% test coverage, mypy 0 errors, bandit 0 medium/high issues. GitHub Actions CI runs the full suite on every push via native service containers. Firm C (`config/firm_c.yaml`) demonstrates a third independent configuration, proving config-only firm switching generalises beyond two firms.
 
-**One notable finding:** When the `ANTHROPIC_API_KEY` environment variable is present, `evaluate` invokes the real LLM for narrative generation. The LLM occasionally introduces numbers not in the computed set (e.g. `100%`, `1.0%`, `1`, `2`), causing the firewall gate inside `evaluate` to report FAIL. This is the firewall functioning correctly — it is catching genuine LLM hallucinations. In stub mode (no API key), all Phase 5 checks PASS. The brief's intent (test the firewall works) is satisfied; the system demonstrates that the firewall correctly blocks non-computed numbers from reaching the report.
+**Default model: `claude-sonnet-4-6`.** Overridable via `ANTHROPIC_MODEL` env var. `evaluate` always uses the deterministic stub narrator (firewall check is reproducible). The `narrate` command uses the live LLM. See `docs/DECISIONS.md §23` and `docs/model_comparison.md` for a full three-model comparison (Haiku / Sonnet / Opus 4.8).
 
 ---
 
@@ -290,7 +290,7 @@ All other 11 figures produce identical values. The utilization format also diffe
 All Phase 5 checks PASSED
 ```
 
-**Note on LLM mode:** When `ANTHROPIC_API_KEY` is set in the container environment, `evaluate` invokes the real LLM (default: `claude-haiku-4-5-20251001`, overridable via `ANTHROPIC_MODEL` env var). The LLM sometimes introduces numbers not in the computed set (observed: `100%`, `1.0%`, `1`, `2`), causing the firewall to report FAIL. This is correct behavior — the firewall is functioning as designed. The LLM path demonstrates that the firewall correctly blocks hallucinated numbers. The stub path always passes.
+**Note on LLM mode:** `evaluate` always uses the deterministic stub narrator — firewall result is reproducible regardless of `ANTHROPIC_API_KEY`. The `narrate` command uses the live LLM (default: `claude-sonnet-4-6`, overridable via `ANTHROPIC_MODEL`). See `docs/model_comparison.md` for a side-by-side comparison of Haiku, Sonnet, and Opus 4.8 narrative output and firewall behavior.
 
 ### 3.7 Determinism Verification
 

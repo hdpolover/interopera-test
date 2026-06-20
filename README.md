@@ -14,7 +14,8 @@ numbers, every figure traceable to a graph path and a source-document chunk.
 - **Optional:** `ANTHROPIC_API_KEY` — the system runs fully without a key; the narrative
   step falls back to a deterministic stub so all 13 figures and the firewall check still pass.
 - **Optional:** `ANTHROPIC_MODEL` — override the LLM model without touching source code
-  (default: `claude-haiku-4-5-20251001`). Set in `.env` when the model is deprecated.
+  (default: `claude-sonnet-4-6`). Set in `.env` to switch tiers — e.g. `claude-haiku-4-5-20251001`
+  for faster/cheaper batch runs. See `docs/DECISIONS.md §23` for a live model comparison.
 
 ---
 

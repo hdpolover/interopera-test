@@ -16,7 +16,7 @@ from src.compute.registry import Figure
 
 # Model override via env var — allows upgrading/swapping without code changes
 # when the current model is deprecated or a better option becomes available.
-_DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+_DEFAULT_MODEL = "claude-sonnet-4-6"
 _ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", _DEFAULT_MODEL)
 
 

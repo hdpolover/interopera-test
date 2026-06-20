@@ -296,13 +296,26 @@ This document records every significant design choice made in the InterOpera Com
 
 ---
 
-### 23. claude-haiku-4-5-20251001 for Narrative Generation
+### 23. claude-sonnet-4-6 for Narrative Generation
 
-**Decision:** Use `claude-haiku-4-5-20251001` as the LLM for narrative prose generation.
+**Decision:** Use `claude-sonnet-4-6` as the default LLM for narrative prose generation. The model is overrideable via `ANTHROPIC_MODEL` env var without code changes.
 
 **Alternatives considered:**
 
-- Claude Sonnet — more capable but higher cost and latency; capability is irrelevant for prose-only elaboration of pre-computed facts.
+- `claude-haiku-4-5-20251001` — faster and cheaper (~3–5× cost saving), but live comparison testing showed it produces shallower output and is less disciplined about prompt rules. Specifically, Haiku tended to derive computed differences ("1.0% below the minimum"), requiring extra firewall fixes to handle false positives. Initially chosen as the default on the assumption that narrative quality was irrelevant since the firewall enforces correctness regardless; revised after empirical testing showed material quality difference.
 - GPT-4o — external vendor dependency without benefit; the output firewall enforces correctness independently of model capability.
 
-**Rationale:** Narrative generation is prose-only — the LLM receives a list of pre-computed figures and writes sentences describing them. There is no multi-step reasoning, tool use, or structured data extraction. Haiku is the fastest and lowest-cost Claude model, which matters for batch runs over many firm/period combinations. The output firewall (`checker.py`) enforces correctness independently of model choice — any number the LLM introduces that was not in the figure set causes the narrative to be rejected, making model capability irrelevant to compliance accuracy.
+**Model comparison (live test, Firm A narrative):**
+
+| Dimension | Haiku (`claude-haiku-4-5-20251001`) | Sonnet (`claude-sonnet-4-6`) | Opus (`claude-opus-4-8`) |
+|---|---|---|---|
+| Output length | ~270 words | ~450 words | ~480 words |
+| Structure | 4 sections, prose bullets | 6 sections, markdown headers, summary table | 6 sections, per-metric bullets, conclusion |
+| Depth | Per-metric values + utilization, brief | Per-metric values + utilization + page citations | Per-metric values + utilization + page citations + breach escalation |
+| Tone | Factual, concise | Professional, auditor-grade | Auditor-grade, advisory |
+| Firewall result | PASS | PASS | PASS |
+| Cost (relative) | ~3–5× cheaper than Sonnet | Baseline | ~5× more expensive than Sonnet |
+
+See `docs/model_comparison.md` for full verbatim narrative output from each model.
+
+**Rationale:** Narrative generation is prose-only — the LLM receives pre-computed figures and writes sentences describing them. The output firewall (`checker.py`) enforces numeric correctness independently of model choice. However, Sonnet produces materially better output: structured section headings, per-metric utilization citations, page references grounded in retrieved source passages, and a summary compliance table — the kind of narrative an actual compliance officer or regulator would expect to read. The cost difference is justified for a compliance reporting context where report quality has real-world consequences. Model is overrideable via `ANTHROPIC_MODEL` in `.env` so operators can switch to Haiku for bulk/offline runs without touching code.
