@@ -15,12 +15,13 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 @pytest.fixture(scope="module")
 def graph_with_pending(driver):
-    """Load 13 positions + rules, then mark the 'allocation_limit' Limit node PENDING_REVIEW.
+    """Load 13 positions + rules, then mark the 'allocation_sgs_limit' Limit node PENDING_REVIEW.
 
-    The real rule_type for allocation_sgs (and all allocation figures) is 'allocation_limit',
-    as set by guidelines_parser._STUB_PASSAGES and mapped in engine._FIGURE_RULE_TYPE.
-    Marking that Limit node PENDING_REVIEW causes _check_limit_node_pending to return True
-    for allocation_sgs, so the engine returns Figure(status="ERROR") for that figure.
+    After the graph-sourced-limits refactor, each figure has its own per-figure Limit node
+    keyed by limit_ref (e.g. ref='allocation_sgs_limit'). We mark the allocation_sgs Limit
+    node PENDING_REVIEW. The engine checks _check_limit_node_pending via
+    MATCH (l:Limit {ref: spec.limit_ref}) so this causes Figure(status="ERROR") for
+    allocation_sgs while leaving other figures unaffected.
     """
     from src.graph.schema import apply_schema
     from src.graph.builder import load_positions, load_rules
@@ -37,12 +38,12 @@ def graph_with_pending(driver):
     chunks = parse_guidelines(pdf_path=None, llm_client=None)
     load_rules(driver, chunks)
 
-    # Mark the allocation_limit Limit node as PENDING_REVIEW to simulate a rule/limit
-    # that has not yet been verified by a human reviewer.
-    # rule_type 'allocation_limit' is the real value from guidelines_parser._STUB_PASSAGES.
+    # Mark the allocation_sgs_limit Limit node as PENDING_REVIEW to simulate a rule/limit
+    # that has not yet been verified by a human reviewer. The engine matches Limit nodes
+    # by ref (spec.limit_ref), so we target the specific per-figure node.
     with driver.session() as session:
         session.run(
-            "MATCH (l:Limit {rule_type: 'allocation_limit'}) SET l.status = 'PENDING_REVIEW'"
+            "MATCH (l:Limit {ref: 'allocation_sgs_limit'}) SET l.status = 'PENDING_REVIEW'"
         )
     return driver
 
@@ -57,7 +58,7 @@ def test_pending_review_node_listed(graph_with_pending):
     """
     from src.graph.queries import list_pending_nodes
     pending = list_pending_nodes(graph_with_pending)
-    # There must be at least one pending node (the allocation_limit Limit we marked above)
+    # There must be at least one pending node (the allocation_sgs_limit Limit we marked above)
     assert len(pending) >= 1, "Expected at least one PENDING_REVIEW node after fixture setup"
     # Every returned node must carry status == PENDING_REVIEW
     for node in pending:
@@ -81,7 +82,7 @@ def test_engine_returns_error_for_pending_figure(graph_with_pending):
         os.path.join(REPO_ROOT, "config", "firm_a.yaml"),
     )
     engine = ComputeEngine(graph_with_pending, config)
-    # allocation_sgs's anchor Limit node (rule_type='allocation_limit') is PENDING_REVIEW
+    # allocation_sgs's anchor Limit node (ref='allocation_sgs_limit') is PENDING_REVIEW
     sgs_spec = next(s for s in FIGURE_REGISTRY if s.id == "allocation_sgs")
     figure = engine.compute_figure(sgs_spec)
     assert figure.status == "ERROR", (
@@ -94,18 +95,39 @@ def test_approve_node_flips_to_verified(graph_with_pending):
     """approve_node must flip the PENDING_REVIEW Limit node to VERIFIED (happy-path gate).
 
     Uses the node_id returned by list_pending_nodes — which for Limit nodes is the
-    chunk_id (8-char hash) because COALESCE picks chunk_id before ref.  approve_node
-    matches on COALESCE(...) so the same identifier is used for both listing and approval.
+    chunk_id (8-char hash) because COALESCE picks chunk_id before ref.  We target the
+    allocation_sgs_limit node specifically (the one the fixture marked PENDING_REVIEW),
+    because there may be other PENDING_REVIEW Limit nodes in the graph (e.g. the
+    counterparty_limit node has low extraction_confidence and is always PENDING_REVIEW).
     """
     from src.graph.queries import approve_node, list_pending_nodes
 
-    # Find any pending Limit node (our fixture marked allocation_limit Limit nodes)
+    # Find the allocation_sgs_limit Limit node specifically (the one our fixture marked).
+    # We cannot rely on list order since other Limit nodes (e.g. counterparty_limit) are
+    # also PENDING_REVIEW (low confidence), and approving the wrong node would leave
+    # allocation_sgs_limit PENDING for the next test.
     pending_before = list_pending_nodes(graph_with_pending)
-    limit_nodes = [n for n in pending_before if "Limit" in n.get("labels", [])]
+    limit_nodes = [
+        n for n in pending_before
+        if "Limit" in n.get("labels", [])
+    ]
     assert len(limit_nodes) >= 1, (
         f"Expected at least one pending Limit node, got: {pending_before}"
     )
-    limit_node_id = limit_nodes[0]["node_id"]
+
+    # Identify the allocation_sgs_limit chunk_id by matching on ref directly.
+    with graph_with_pending.session() as session:
+        result = session.run(
+            "MATCH (l:Limit {ref: 'allocation_sgs_limit'}) RETURN l.chunk_id AS cid"
+        )
+        sgs_record = result.single()
+    assert sgs_record is not None, "Could not find allocation_sgs_limit Limit node"
+    limit_node_id = sgs_record["cid"]
+
+    # Verify this node is in the pending list
+    assert any(n["node_id"] == limit_node_id for n in limit_nodes), (
+        f"allocation_sgs_limit (cid={limit_node_id}) not found in pending list: {limit_nodes}"
+    )
 
     approve_node(graph_with_pending, limit_node_id, actor="test_human")
 

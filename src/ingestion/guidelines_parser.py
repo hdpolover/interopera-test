@@ -162,13 +162,19 @@ def parse_guidelines(pdf_path: str | None = None, llm_client: object | None = No
         # Allocations (7) — SGS..SC use min/max band; Cash uses floor only.
         for row in extract_allocations(pdf):
             ref = _ALLOC_REF[row.asset_class]
-            passage = f"{row.asset_class}: allocation {_fmt_pct(row.min_frac)}-{_fmt_pct(row.max_frac)} of NAV (Section 2)."
+            # Allocation rows must have min_frac; rows without a max use min only.
+            assert row.min_frac is not None, (
+                f"min_frac is None for {row.asset_class} — PDF table parse failed"
+            )
+            min_frac = row.min_frac
+            max_frac = row.max_frac if row.max_frac is not None else row.min_frac
+            passage = f"{row.asset_class}: allocation {_fmt_pct(min_frac)}-{_fmt_pct(max_frac)} of NAV (Section 2)."
             if ref == "allocation_cash_limit":
-                bounds: dict[str, str] = {"floor_value": _fmt_pct(row.min_frac), "unit": "pct"}
+                bounds: dict[str, str] = {"floor_value": _fmt_pct(min_frac), "unit": "pct"}
             else:
                 bounds = {
-                    "min_value": _fmt_pct(row.min_frac),
-                    "max_value": _fmt_pct(row.max_frac),
+                    "min_value": _fmt_pct(min_frac),
+                    "max_value": _fmt_pct(max_frac),
                     "unit": "pct",
                 }
             chunks.append(_chunk(passage, row.page, "allocation_limit", 0.95, limit_ref=ref, bounds=bounds))

@@ -158,21 +158,6 @@ def test_empty_group_produces_error_figure():
         non_ig=NonIgConfig(include_fallen_angels=False),
         concentration=ConcentrationConfig(gre=GREConfig(group_key="issuer")),
         output=OutputConfig(utilization_format="percent_1dp"),
-        limits={
-            "allocation_sgs": {"min_pct": 0.20, "max_pct": 0.60},
-            "allocation_mas_bills": {"min_pct": 0.00, "max_pct": 0.40},
-            "allocation_ig_corp": {"min_pct": 0.10, "max_pct": 0.50},
-            "allocation_high_yield": {"min_pct": 0.00, "max_pct": 0.15},
-            "allocation_fx_bonds": {"min_pct": 0.00, "max_pct": 0.20},
-            "allocation_structured_credit": {"min_pct": 0.00, "max_pct": 0.10},
-            "allocation_cash": {"min_pct": 0.05},
-            "aggregate_non_ig_exposure": {"max_pct": 0.20},
-            "largest_single_corporate_issuer": {"max_pct": 0.08},
-            "largest_gre_issuer": {"max_pct": 0.12},
-            "liquid_assets_ratio": {"min_pct": 0.25},
-            "portfolio_duration": {"min_years": 2.0, "max_years": 6.5},
-            "portfolio_dv01": {"max_sgd": 85000},
-        },
     )
 
     # Mock driver: citation query returns a valid chunk, pending check returns no pending nodes

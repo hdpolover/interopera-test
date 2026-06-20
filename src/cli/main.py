@@ -377,6 +377,8 @@ def evaluate(
 
     if firm.upper() == "A":
         expected = parse_answer_key_xlsx(str(SAMPLE_DOCS / "firm_A_answer_key.xlsx"))
+    elif firm.upper() == "C":
+        expected = parse_expected_yaml(str(CONFIG_DIR / "firm_c_expected.yaml"))
     else:
         expected = parse_expected_yaml(str(CONFIG_DIR / "firm_b_expected.yaml"))
     recon_results = do_reconcile(figures, expected)
