@@ -191,40 +191,6 @@ This document records every significant design choice made in the InterOpera Com
 
 ---
 
-### 24. Deterministic Rule Transcription vs. Live LLM Extraction
-
-**Decision:** By default the guidelines are loaded from a **deterministic, hand-verified transcription** of `sample_fund_guidelines.pdf` — the `_STUB_PASSAGES` table in `guidelines_parser.py` — not from live PDF parsing. An LLM-assisted extraction path exists in the same module (`parse_guidelines(pdf_path, llm_client=...)`, using `pdfplumber` + an injected client) but is **off by default**: every CLI command calls `parse_guidelines(..., llm_client=None)`, which returns the transcription. The brief invites this ("you may add small mock documents if your design requires them — if you do, say why"); this section is the "say why."
-
-**Alternatives considered:**
-
-- Always run live LLM extraction on the PDF — rejected for the default path because LLM extraction is non-deterministic (constraint C1) and error-prone; the same PDF could yield different `chunk_id`s, page numbers, or confidences across runs, which would make the graph, the citations, and therefore the reconciliation non-reproducible. It also adds a hard dependency on a network API key just to build the graph.
-- Parse the PDF deterministically with `pdfplumber` only (no LLM) and regex the limits — rejected as brittle: the figures in the PDF live in tables that flow across page boundaries, and a regex layer would be more code and less reliable than a reviewed transcription for a fixed, single-fund corpus (the brief explicitly prioritises "graph and computation quality over size").
-
-**Rationale:** For a fixed sample fund, a reviewed transcription gives byte-identical graph state on every run (C1) while preserving real, checkable provenance: each chunk's `source_doc`, `page`, and `passage_summary` were verified against the actual PDF, so tracing `figure → graph path → SourceChunk → page` lands on the correct section of `sample_fund_guidelines.pdf`. The page numbers carry the section label (e.g. "Section 3.1") for unambiguous auditor lookup. The LLM extraction path remains in the codebase to show how the same `RuleChunk` contract would be populated at scale, and the **`confidence < 0.85 → PENDING_REVIEW`** gating it would trigger is exercised today by the deliberately low-confidence `counterparty_limit` chunk (see §25).
-
----
-
-### 25. Low-Confidence `counterparty_limit` Chunk — Demonstrating the Human Gate
-
-**Decision:** The transcription includes one chunk extracted at `extraction_confidence = 0.78` — the §3.2 single-counterparty 5%-of-NAV cap. Because it is below the 0.85 threshold, `load_rules` loads its `Limit` node as `PENDING_REVIEW`, so it appears in `verify-graph` awaiting a human approval.
-
-**Alternatives considered:**
-
-- Make every chunk high-confidence so the graph loads fully VERIFIED — rejected because then the human-verification gate the brief requires (Phase 1: "a gate where a human verifies the extracted graph") and the error-handling failure mode it names ("an extracted entity the system can't confidently resolve") would never actually fire in a live demo; the mechanism would be tested but never *shown*.
-- Make one of the 13 reported figures low-confidence — rejected because a `PENDING_REVIEW` node that anchors a figure correctly blocks that figure (returns `status="ERROR"`), which would break Firm A/B reconciliation until approved. The counterparty cap is a real rule in the guidelines that is **not** one of the 13 reported figures, so it demonstrates the gate without blocking any computed figure.
-
-**Rationale:** This makes the documented `build-graph → verify-graph --approve-all → run` workflow real rather than theoretical: a reviewer running the system sees exactly one node pending human sign-off, approves it, and observes the audit log record a `node_verified` event with the approving actor. The 13 figures compute regardless of whether it is approved, so reproducibility and reconciliation are unaffected.
-
----
-
-### 26. Cash Allocation Modelled as Floor-Only
-
-**Decision:** The cash allocation limit is modelled as a minimum floor (`min 5%`) even though the source PDF states a 5–25% band.
-
-**Rationale:** The cash position is 4% of NAV, which breaches the 5% floor regardless of the 25% cap, so the cap never binds and `firm_A_answer_key.xlsx` reports cash on the floor alone (`4.0% — BREACH`, utilization `n/a`). Modelling it as `within_min_max(5%, 25%)` would produce the identical value and status, so floor-only matches the answer key exactly while keeping the comparator set minimal. The full band is recorded in the chunk's `extracted_fields` for traceability; switching to a two-sided comparator is a one-line config change if a future portfolio's cash level made the cap bind.
-
----
-
 ## Infrastructure & Tooling Decisions
 
 ### 14. Docker Compose
@@ -372,3 +338,39 @@ openpyxl's read-write capability is also required for the template pattern: `wri
 See `docs/model_comparison.md` for full verbatim narrative output from each model.
 
 **Rationale:** Narrative generation is prose-only — the LLM receives pre-computed figures and writes sentences describing them. The output firewall (`checker.py`) enforces numeric correctness independently of model choice. However, Sonnet produces materially better output: structured section headings, per-metric utilization citations, page references grounded in retrieved source passages, and a summary compliance table — the kind of narrative an actual compliance officer or regulator would expect to read. The cost difference is justified for a compliance reporting context where report quality has real-world consequences. Model is overrideable via `ANTHROPIC_MODEL` in `.env` so operators can switch to Haiku for bulk/offline runs without touching code.
+
+---
+
+## Additional Design Decisions
+
+### 24. Deterministic Rule Transcription vs. Live LLM Extraction
+
+**Decision:** By default the guidelines are loaded from a **deterministic, hand-verified transcription** of `sample_fund_guidelines.pdf` — the `_STUB_PASSAGES` table in `guidelines_parser.py` — not from live PDF parsing. An LLM-assisted extraction path exists in the same module (`parse_guidelines(pdf_path, llm_client=...)`, using `pdfplumber` + an injected client) but is **off by default**: every CLI command calls `parse_guidelines(..., llm_client=None)`, which returns the transcription. The brief invites this ("you may add small mock documents if your design requires them — if you do, say why"); this section is the "say why."
+
+**Alternatives considered:**
+
+- Always run live LLM extraction on the PDF — rejected for the default path because LLM extraction is non-deterministic (constraint C1) and error-prone; the same PDF could yield different `chunk_id`s, page numbers, or confidences across runs, which would make the graph, the citations, and therefore the reconciliation non-reproducible. It also adds a hard dependency on a network API key just to build the graph.
+- Parse the PDF deterministically with `pdfplumber` only (no LLM) and regex the limits — rejected as brittle: the figures in the PDF live in tables that flow across page boundaries, and a regex layer would be more code and less reliable than a reviewed transcription for a fixed, single-fund corpus (the brief explicitly prioritises "graph and computation quality over size").
+
+**Rationale:** For a fixed sample fund, a reviewed transcription gives byte-identical graph state on every run (C1) while preserving real, checkable provenance: each chunk's `source_doc`, `page`, and `passage_summary` were verified against the actual PDF, so tracing `figure → graph path → SourceChunk → page` lands on the correct section of `sample_fund_guidelines.pdf`. The page numbers carry the section label (e.g. "Section 3.1") for unambiguous auditor lookup. The LLM extraction path remains in the codebase to show how the same `RuleChunk` contract would be populated at scale, and the **`confidence < 0.85 → PENDING_REVIEW`** gating it would trigger is exercised today by the deliberately low-confidence `counterparty_limit` chunk (see §25).
+
+---
+
+### 25. Low-Confidence `counterparty_limit` Chunk — Demonstrating the Human Gate
+
+**Decision:** The transcription includes one chunk extracted at `extraction_confidence = 0.78` — the §3.2 single-counterparty 5%-of-NAV cap. Because it is below the 0.85 threshold, `load_rules` loads its `Limit` node as `PENDING_REVIEW`, so it appears in `verify-graph` awaiting a human approval.
+
+**Alternatives considered:**
+
+- Make every chunk high-confidence so the graph loads fully VERIFIED — rejected because then the human-verification gate the brief requires (Phase 1: "a gate where a human verifies the extracted graph") and the error-handling failure mode it names ("an extracted entity the system can't confidently resolve") would never actually fire in a live demo; the mechanism would be tested but never *shown*.
+- Make one of the 13 reported figures low-confidence — rejected because a `PENDING_REVIEW` node that anchors a figure correctly blocks that figure (returns `status="ERROR"`), which would break Firm A/B reconciliation until approved. The counterparty cap is a real rule in the guidelines that is **not** one of the 13 reported figures, so it demonstrates the gate without blocking any computed figure.
+
+**Rationale:** This makes the documented `build-graph → verify-graph --approve-all → run` workflow real rather than theoretical: a reviewer running the system sees exactly one node pending human sign-off, approves it, and observes the audit log record a `node_verified` event with the approving actor. The 13 figures compute regardless of whether it is approved, so reproducibility and reconciliation are unaffected.
+
+---
+
+### 26. Cash Allocation Modelled as Floor-Only
+
+**Decision:** The cash allocation limit is modelled as a minimum floor (`min 5%`) even though the source PDF states a 5–25% band.
+
+**Rationale:** The cash position is 4% of NAV, which breaches the 5% floor regardless of the 25% cap, so the cap never binds and `firm_A_answer_key.xlsx` reports cash on the floor alone (`4.0% — BREACH`, utilization `n/a`). Modelling it as `within_min_max(5%, 25%)` would produce the identical value and status, so floor-only matches the answer key exactly while keeping the comparator set minimal. The full band is recorded in the chunk's `extracted_fields` for traceability; switching to a two-sided comparator is a one-line config change if a future portfolio's cash level made the cap bind.
