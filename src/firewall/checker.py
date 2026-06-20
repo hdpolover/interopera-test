@@ -57,10 +57,10 @@ _NUMBER_RE = re.compile(
 # Allowlist category 1: 4-digit years (1900–2099)
 _ALLOWLIST_YEAR_RE = re.compile(r"^(19|20)\d{2}$")
 
-# Allowlist category 2: structural section/cross-reference numbers.
+# Allowlist category 2: structural section/cross-reference and page numbers.
 # Captures the numeric string that IMMEDIATELY follows the structural keyword.
 _ALLOWLIST_SECTION_RE = re.compile(
-    r"(?:Section|§|Para(?:graph)?|Art(?:icle)?|Annex|Exhibit|Clause)\s*(\d+(?:\.\d+)*)",
+    r"(?:Section|§|Para(?:graph)?|Art(?:icle)?|Annex|Exhibit|Clause|[Pp]age|[Pp]g\.?)\s*(\d+(?:\.\d+)*)",
     re.IGNORECASE,
 )
 
