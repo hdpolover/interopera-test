@@ -119,24 +119,48 @@ def test_replay_unknown_figure_exits_1(figures_firm_a: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test: Firm B shows "no answer key" message
+# Test: Firm B / C show delta vs their YAML answer key
 # ---------------------------------------------------------------------------
 
 
-def test_replay_firm_b_no_answer_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """replay for Firm B should print a note that no answer key is available."""
+def _write_expected_yaml(path: Path, figure: str, value: str) -> None:
+    path.write_text(f"figures:\n  {figure}:\n    value: \"{value}\"\n    status: \"OK\"\n")
+
+
+def test_replay_firm_b_shows_delta_from_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """replay for Firm B computes a delta against config/firm_b_expected.yaml."""
     figures_file = tmp_path / "figures_firm_b.json"
     figures_file.write_text(json.dumps(_SAMPLE_FIGURES))
+    _write_expected_yaml(tmp_path / "firm_b_expected.yaml", "allocation_sgs", "33.0%")
 
     import src.cli.main as cli_main
     monkeypatch.setattr(cli_main, "OUT_DIR", tmp_path)
     monkeypatch.setattr(cli_main, "SAMPLE_DOCS", tmp_path)
+    monkeypatch.setattr(cli_main, "CONFIG_DIR", tmp_path)
 
     result = runner.invoke(app, ["replay", "--figure", "allocation_sgs", "--firm", "B"])
 
     assert result.exit_code == 0
-    output_lower = result.output.lower()
-    assert "no answer key" in output_lower or "firm b" in output_lower
+    assert "Delta vs answer key" in result.output
+    assert "33.0%" in result.output  # expected value from the yaml
+    assert "35.0%" in result.output  # computed value from the figures json
+
+
+def test_replay_firm_c_shows_delta_from_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """replay for Firm C computes a delta against config/firm_c_expected.yaml."""
+    figures_file = tmp_path / "figures_firm_c.json"
+    figures_file.write_text(json.dumps(_SAMPLE_FIGURES))
+    _write_expected_yaml(tmp_path / "firm_c_expected.yaml", "allocation_sgs", "35.0%")
+
+    import src.cli.main as cli_main
+    monkeypatch.setattr(cli_main, "OUT_DIR", tmp_path)
+    monkeypatch.setattr(cli_main, "SAMPLE_DOCS", tmp_path)
+    monkeypatch.setattr(cli_main, "CONFIG_DIR", tmp_path)
+
+    result = runner.invoke(app, ["replay", "--figure", "allocation_sgs", "--firm", "C"])
+
+    assert result.exit_code == 0
+    assert "Delta vs answer key" in result.output
 
 
 # ---------------------------------------------------------------------------

@@ -563,7 +563,7 @@ def replay(
     console.print(f"[bold]Source passage:[/bold] {citation.get('passage_summary', 'N/A')}")
     console.print(f"[bold]Chunk ID:[/bold]       {citation.get('chunk_id', 'N/A')}")
 
-    _print_delta(firm, figure, match, SAMPLE_DOCS)
+    _print_delta(firm, figure, match, SAMPLE_DOCS, CONFIG_DIR)
     _print_config_knobs(firm_id, figure, CONFIG_DIR)
 
 

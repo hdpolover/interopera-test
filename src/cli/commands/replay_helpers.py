@@ -78,16 +78,47 @@ def parse_numeric(value_str: str) -> Optional[float]:
         return None
 
 
-def print_delta_vs_answer_key(firm: str, figure: str, match: dict, sample_docs: Path) -> None:
-    """Print delta vs answer key section of the replay output."""
-    if firm.upper() == "A":
+def print_delta_vs_answer_key(
+    firm: str, figure: str, match: dict, sample_docs: Path, config_dir: Path
+) -> None:
+    """Print the delta-vs-answer-key section of the replay output for any firm.
+
+    Firm A's key is the XLSX in sample_docs; Firm B and C have YAML keys in
+    config_dir (firm_{b,c}_expected.yaml). An unknown firm prints a skip note.
+    """
+    f = firm.upper()
+    if f == "A":
         xlsx_path = sample_docs / "firm_A_answer_key.xlsx"
         if xlsx_path.exists():
             _print_delta_firm_a(figure, match, xlsx_path)
         else:
             console.print(f"\n[yellow]Answer key file not found at {xlsx_path}[/yellow]")
+    elif f in ("B", "C"):
+        yaml_path = config_dir / f"firm_{f.lower()}_expected.yaml"
+        if yaml_path.exists():
+            _print_delta_from_yaml(figure, match, yaml_path)
+        else:
+            console.print(f"\n[yellow]Answer key file not found at {yaml_path}[/yellow]")
     else:
-        console.print("\n[dim]Note: no answer key available for Firm B — delta comparison skipped.[/dim]")
+        console.print(
+            f"\n[dim]Note: no answer key available for Firm {f} — delta comparison skipped.[/dim]"
+        )
+
+
+def _render_delta(figure: str, expected_value: Optional[str], computed_value: str) -> None:
+    """Print the Expected/Computed/Delta block, or a not-found note."""
+    if expected_value is None:
+        console.print(f"\n[yellow]No answer key row found for figure '{figure}'[/yellow]")
+        return
+    exp_num = parse_numeric(expected_value)
+    comp_num = parse_numeric(computed_value)
+    delta_str = f"{comp_num - exp_num:+.4g}" if (exp_num is not None and comp_num is not None) else "N/A"
+    console.print(
+        f"\n[bold]Delta vs answer key:[/bold]\n"
+        f"  Expected: {expected_value}\n"
+        f"  Computed: {computed_value}\n"
+        f"  Delta:    {delta_str}"
+    )
 
 
 def _print_delta_firm_a(figure: str, match: dict, xlsx_path: Path) -> None:
@@ -113,19 +144,18 @@ def _print_delta_firm_a(figure: str, match: dict, xlsx_path: Path) -> None:
                 break
     finally:
         wb.close()
-    if expected_value is not None:
-        computed_value = match.get("value", "N/A")
-        exp_num = parse_numeric(expected_value)
-        comp_num = parse_numeric(computed_value)
-        delta_str = f"{comp_num - exp_num:+.4g}" if (exp_num is not None and comp_num is not None) else "N/A"
-        console.print(
-            f"\n[bold]Delta vs answer key:[/bold]\n"
-            f"  Expected: {expected_value}\n"
-            f"  Computed: {computed_value}\n"
-            f"  Delta:    {delta_str}"
-        )
-    else:
-        console.print(f"\n[yellow]No answer key row found for figure '{figure}'[/yellow]")
+    _render_delta(figure, expected_value, match.get("value", "N/A"))
+
+
+def _print_delta_from_yaml(figure: str, match: dict, yaml_path: Path) -> None:
+    """Compute and print delta for a Firm B/C figure against its YAML answer key."""
+    import yaml as _yaml
+
+    with open(yaml_path) as fh:
+        data = _yaml.safe_load(fh) or {}
+    raw = (data.get("figures", {}).get(figure) or {}).get("value")
+    expected_value = str(raw).strip() if raw is not None else None
+    _render_delta(figure, expected_value, match.get("value", "N/A"))
 
 
 def print_config_knobs(firm_id: str, figure: str, config_dir: Path) -> None:
@@ -138,12 +168,6 @@ def print_config_knobs(firm_id: str, figure: str, config_dir: Path) -> None:
         with open(firm_yaml) as fh:
             config_dict = _yaml.safe_load(fh) or {}
 
-    base_yaml = config_dir / "base.yaml"
-    base_dict: dict = {}
-    if base_yaml.exists():
-        with open(base_yaml) as fh:
-            base_dict = _yaml.safe_load(fh) or {}
-
     knobs = FIGURE_CONFIG_KNOBS.get(figure, [])
     all_knobs = knobs + ["output.utilization_format"]
 
@@ -154,8 +178,3 @@ def print_config_knobs(firm_id: str, figure: str, config_dir: Path) -> None:
         for p in parts:
             val = val.get(p, {}) if isinstance(val, dict) else None
         console.print(f"  {knob} = {val}")
-
-    limits = base_dict.get("limits", {})
-    fig_limit = limits.get(figure)
-    if fig_limit:
-        console.print(f"  limit ({figure}) = {fig_limit}")
