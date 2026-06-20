@@ -84,7 +84,6 @@ def test_pdf_with_llm_that_returns_no_chunks_raises_valueerror():
         def extract_rule(self, text: str) -> None:
             return None
 
-    import tempfile, os
     # Create a fake PDF-like temp file — pdfplumber will fail to open it,
     # which is caught and re-raised. We test the ValueError path directly
     # by mocking the whole pdfplumber open context.
@@ -119,7 +118,6 @@ def test_min_paragraph_chars_constant_exists():
 
 # Fix 8: RuleChunk must be frozen (immutable)
 def test_rule_chunk_is_frozen():
-    import dataclasses
     from src.ingestion.guidelines_parser import RuleChunk
     chunk = RuleChunk(
         chunk_id="abc",

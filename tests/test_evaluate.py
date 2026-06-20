@@ -150,7 +150,7 @@ def test_empty_group_produces_error_figure():
     from unittest.mock import MagicMock
     from src.compute.engine import ComputeEngine
     from src.compute.config_loader import FirmConfig, NonIgConfig, GREConfig, ConcentrationConfig, OutputConfig
-    from src.compute.registry import FigureSpec, Figure
+    from src.compute.registry import FigureSpec
     from decimal import Decimal
 
     config = FirmConfig(
@@ -178,8 +178,6 @@ def test_empty_group_produces_error_figure():
     # Mock driver: citation query returns a valid chunk, pending check returns no pending nodes
     citation_record = {"chunk_id": "cid", "source_doc": "test.pdf", "page": 1, "passage_summary": "test"}
     pending_record = {"cnt": 0}
-
-    call_count = [0]
 
     def mock_run(query, **kwargs):
         result = MagicMock()

@@ -6,7 +6,6 @@ import hashlib
 from dataclasses import dataclass
 from collections.abc import Sequence
 from decimal import Decimal, InvalidOperation
-from typing import Any
 
 REQUIRED_COLUMNS: frozenset[str] = frozenset(
     {
