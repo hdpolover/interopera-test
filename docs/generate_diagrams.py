@@ -1,362 +1,302 @@
-"""
-Generate two professional architecture diagrams for the InterOpera Compliance Reporting System.
-"""
+"""Generate two architecture diagrams for the InterOpera Compliance Reporting System."""
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
-import matplotlib.patheffects as pe
+from matplotlib.patches import FancyBboxPatch
 
-# ─────────────────────────────────────────────────────────────
-# DIAGRAM 1: Data Flow (top-to-bottom)
-# ─────────────────────────────────────────────────────────────
+OUT_DIR = '/Users/hendra/Projects/Others/interopera-test/docs'
 
-def draw_box(ax, x, y, w, h, label, sublabel=None, color='#4a90d9',
-             fontsize=10, subfontsize=8, radius=0.04, text_color='white'):
-    box = FancyBboxPatch((x - w / 2, y - h / 2), w, h,
-                         boxstyle=f"round,pad={radius}",
-                         linewidth=1.2, edgecolor='white',
-                         facecolor=color, zorder=3)
-    ax.add_patch(box)
+# ── Palette ────────────────────────────────────────────────────────────────────
+BG       = '#f8f9fa'   # near-white background
+SLATE    = '#1e2d40'   # primary dark (headers, section labels)
+BLUE     = '#2563eb'   # pipeline boxes
+BLUE_LT  = '#dbeafe'   # pipeline box fill (light)
+GRAY     = '#64748b'   # input/secondary boxes
+GRAY_LT  = '#f1f5f9'   # light fill for gray boxes
+TEAL     = '#0d7a5f'   # output boxes
+TEAL_LT  = '#d1fae5'   # output fill
+RED      = '#dc2626'   # LLM only
+RED_LT   = '#fee2e2'   # LLM fill
+DIVIDER  = '#cbd5e1'   # horizontal rule
+TEXT     = '#0f172a'   # body text
+SUBTEXT  = '#475569'   # subtitle / secondary text
+ARROW    = '#94a3b8'   # arrows
+
+
+def box(ax, cx, cy, w, h, label, sublabel=None,
+        fc=BLUE_LT, ec=BLUE, lw=1.2,
+        fontsize=9, subfontsize=7.5, bold=True):
+    patch = FancyBboxPatch(
+        (cx - w / 2, cy - h / 2), w, h,
+        boxstyle='round,pad=0.03',
+        facecolor=fc, edgecolor=ec, linewidth=lw, zorder=3,
+    )
+    ax.add_patch(patch)
     if sublabel:
-        ax.text(x, y + h * 0.15, label, ha='center', va='center',
-                color=text_color, fontsize=fontsize, fontweight='bold', zorder=4)
-        ax.text(x, y - h * 0.22, sublabel, ha='center', va='center',
-                color='#cccccc', fontsize=subfontsize, style='italic', zorder=4,
-                wrap=True)
+        ax.text(cx, cy + h * 0.15, label, ha='center', va='center',
+                color=TEXT, fontsize=fontsize,
+                fontweight='bold' if bold else 'normal', zorder=4)
+        ax.text(cx, cy - h * 0.20, sublabel, ha='center', va='center',
+                color=SUBTEXT, fontsize=subfontsize, style='italic', zorder=4)
     else:
-        ax.text(x, y, label, ha='center', va='center',
-                color=text_color, fontsize=fontsize, fontweight='bold', zorder=4)
+        ax.text(cx, cy, label, ha='center', va='center',
+                color=TEXT, fontsize=fontsize,
+                fontweight='bold' if bold else 'normal', zorder=4)
 
 
-def arrow(ax, x1, y1, x2, y2, color='#aaaaaa'):
-    ax.annotate('', xy=(x2, y2), xytext=(x1, y1),
-                arrowprops=dict(arrowstyle='->', color=color,
-                                lw=1.5, connectionstyle='arc3,rad=0.0'),
-                zorder=2)
+def arr(ax, x1, y1, x2, y2):
+    ax.annotate(
+        '', xy=(x2, y2), xytext=(x1, y1),
+        arrowprops=dict(arrowstyle='->', color=ARROW, lw=1.2,
+                        connectionstyle='arc3,rad=0.0'),
+        zorder=2,
+    )
 
+
+# ── DIAGRAM 1: Data Flow ───────────────────────────────────────────────────────
 
 def diagram_flow():
-    fig, ax = plt.subplots(figsize=(14, 18))
-    fig.patch.set_facecolor('#1a1a2e')
-    ax.set_facecolor('#1a1a2e')
-    ax.set_xlim(0, 14)
-    ax.set_ylim(0, 18)
+    fig, ax = plt.subplots(figsize=(13, 16))
+    fig.patch.set_facecolor(BG)
+    ax.set_facecolor(BG)
+    ax.set_xlim(0, 13)
+    ax.set_ylim(0.5, 16.5)
     ax.axis('off')
 
     # Title
-    ax.text(7, 17.4, 'InterOpera Compliance Reporting System', ha='center', va='center',
-            color='white', fontsize=16, fontweight='bold')
-    ax.text(7, 17.0, 'Architecture Data Flow', ha='center', va='center',
-            color='#aaaaff', fontsize=12)
+    ax.text(6.5, 16.1, 'InterOpera Compliance Reporting System', ha='center',
+            color=SLATE, fontsize=15, fontweight='bold')
+    ax.text(6.5, 15.65, 'Architecture · Data Flow', ha='center',
+            color=SUBTEXT, fontsize=11)
+    ax.axhline(15.35, color=DIVIDER, linewidth=0.8)
 
-    # ── Row 1: Inputs ──────────────────────────────────────────
-    y1 = 15.8
-    bh = 0.7
-    draw_box(ax, 2.5, y1, 3.2, bh, 'sample_holdings.csv', color='#555577')
-    draw_box(ax, 7.0, y1, 3.5, bh, 'sample_fund_guidelines.pdf', color='#555577')
-    draw_box(ax, 11.5, y1, 3.2, bh, 'config/firm_{a,b,c}.yaml', color='#555577')
+    BH = 0.72   # box height
+    COL = [2.0, 6.5, 11.0]   # 3 column x-centers
 
-    # Row 1 label
-    ax.text(0.3, y1, 'INPUTS', ha='left', va='center', color='#777799',
-            fontsize=8, fontweight='bold')
+    def section(y, label):
+        ax.text(0.25, y, label, ha='left', va='center',
+                color=GRAY, fontsize=7.5, fontweight='bold',
+                rotation=90 if False else 0)
 
-    # ── Row 2: Ingestion ───────────────────────────────────────
-    y2 = 14.2
-    draw_box(ax, 3.5, y2, 4.0, bh, 'holdings_parser.py', color='#4a90d9')
-    draw_box(ax, 10.0, y2, 4.0, bh, 'guidelines_parser.py',
-             sublabel='(LLM-optional stub)', color='#4a90d9')
+    # ── Row 1: Inputs ──────────────────────────────────────────────────────────
+    y1 = 14.5
+    section(y1, 'INPUTS')
+    for cx, lbl in zip(COL, ['sample_holdings.csv',
+                              'sample_fund_guidelines.pdf',
+                              'config/firm_{a,b,c}.yaml']):
+        box(ax, cx, y1, 3.6, BH, lbl, fc=GRAY_LT, ec=GRAY, lw=1.0, fontsize=8.5)
+    ax.axhline(13.95, color=DIVIDER, linewidth=0.5, linestyle=':')
 
-    ax.text(0.3, y2, 'INGEST', ha='left', va='center', color='#777799',
-            fontsize=8, fontweight='bold')
+    # ── Row 2: Ingestion ───────────────────────────────────────────────────────
+    y2 = 13.2
+    section(y2, 'INGEST')
+    box(ax, 3.25, y2, 4.2, BH, 'holdings_parser.py',
+        fc=BLUE_LT, ec=BLUE)
+    box(ax, 9.75, y2, 4.2, BH, 'guidelines_parser.py',
+        sublabel='(LLM-optional stub)',
+        fc=BLUE_LT, ec=BLUE)
+    arr(ax, COL[0], y1 - BH / 2, 3.25, y2 + BH / 2)
+    arr(ax, COL[1], y1 - BH / 2, 9.75, y2 + BH / 2)
+    ax.axhline(12.7, color=DIVIDER, linewidth=0.5, linestyle=':')
 
-    # Arrows row1 → row2
-    arrow(ax, 2.5, y1 - bh / 2, 3.2, y2 + bh / 2)
-    arrow(ax, 7.0, y1 - bh / 2, 10.0, y2 + bh / 2)
+    # ── Row 3: Neo4j Graph ─────────────────────────────────────────────────────
+    y3 = 11.8
+    section(y3, 'GRAPH')
+    box(ax, 6.5, y3, 10.8, BH + 0.15, 'Neo4j Knowledge Graph',
+        sublabel='11 node types  ·  MERGE idempotent  ·  provenance on every node',
+        fc=BLUE_LT, ec=BLUE, lw=1.5, fontsize=10.5)
+    arr(ax, 3.25, y2 - BH / 2, 4.5, y3 + (BH + 0.15) / 2)
+    arr(ax, 9.75, y2 - BH / 2, 8.5, y3 + (BH + 0.15) / 2)
+    arr(ax, COL[2], y1 - BH / 2, COL[2], y3 + (BH + 0.15) / 2)
+    ax.axhline(11.25, color=DIVIDER, linewidth=0.5, linestyle=':')
 
-    # ── Row 3: Knowledge Graph ─────────────────────────────────
-    y3 = 12.5
-    bh3 = 0.85
-    draw_box(ax, 7.0, y3, 11.0, bh3,
-             'Neo4j Knowledge Graph',
-             sublabel='11 node types  ·  MERGE idempotent  ·  provenance on every node',
-             color='#7b68ee', fontsize=12)
+    # ── Row 4: Compute ─────────────────────────────────────────────────────────
+    y4 = 10.3
+    section(y4, 'COMPUTE')
+    box(ax, 3.25, y4, 4.2, BH, 'config_loader.py → FirmConfig',
+        fc=BLUE_LT, ec=BLUE, fontsize=8.5)
+    box(ax, 9.75, y4, 4.2, BH, 'engine.py  ComputeEngine',
+        fc=BLUE_LT, ec=BLUE, fontsize=8.5)
+    arr(ax, 4.5, y3 - (BH + 0.15) / 2, 3.25, y4 + BH / 2)
+    arr(ax, 8.5, y3 - (BH + 0.15) / 2, 9.75, y4 + BH / 2)
+    arr(ax, 5.35, y4, 7.65, y4)   # config → engine
+    ax.axhline(9.8, color=DIVIDER, linewidth=0.5, linestyle=':')
 
-    ax.text(0.3, y3, 'GRAPH', ha='left', va='center', color='#777799',
-            fontsize=8, fontweight='bold')
+    # ── Row 5: Figures + Narrate + Firewall ────────────────────────────────────
+    y5 = 8.8
+    section(y5, 'NARRATE')
 
-    arrow(ax, 3.5, y2 - bh / 2, 5.0, y3 + bh3 / 2)
-    arrow(ax, 10.0, y2 - bh / 2, 9.0, y3 + bh3 / 2)
-    # config arrow
-    arrow(ax, 11.5, y1 - bh / 2, 11.5, y3 + bh3 / 2)
+    # list[Figure]
+    box(ax, 2.0, y5, 3.2, BH, 'list[Figure]',
+        sublabel='value · status · graph_path · citation',
+        fc=BLUE_LT, ec=BLUE, fontsize=8.5)
 
-    # ── Row 4: Compute ─────────────────────────────────────────
-    y4 = 10.9
-    draw_box(ax, 3.5, y4, 4.0, bh, 'config_loader.py → FirmConfig', color='#50c878',
-             text_color='#1a1a2e')
-    draw_box(ax, 10.0, y4, 4.0, bh, 'engine.py  ComputeEngine', color='#50c878',
-             text_color='#1a1a2e')
+    # LLM boundary dashed box — wraps narrator only
+    bnd = FancyBboxPatch((5.2, y5 - 0.52), 3.8, 1.04,
+                          boxstyle='round,pad=0.05',
+                          facecolor=RED_LT, edgecolor=RED,
+                          linewidth=1.6, linestyle='--', zorder=2)
+    ax.add_patch(bnd)
+    ax.text(7.1, y5 + 0.62, 'LLM BOUNDARY', ha='center',
+            color=RED, fontsize=7.5, fontweight='bold', zorder=5)
+    box(ax, 7.1, y5, 3.4, BH, 'narrator.py',
+        sublabel='stub or claude-haiku',
+        fc=RED_LT, ec=RED, fontsize=8.5)
 
-    ax.text(0.3, y4, 'COMPUTE', ha='left', va='center', color='#777799',
-            fontsize=8, fontweight='bold')
+    # Firewall
+    box(ax, 11.0, y5, 3.2, BH, 'firewall/checker.py',
+        sublabel='6 gates · numeric token check',
+        fc=GRAY_LT, ec=GRAY, fontsize=8.5)
 
-    arrow(ax, 6.0, y3 - bh3 / 2, 3.5, y4 + bh / 2)
-    arrow(ax, 8.0, y3 - bh3 / 2, 10.0, y4 + bh / 2)
-    # config_loader → engine
-    arrow(ax, 5.5, y4, 8.0, y4)
+    arr(ax, 3.25, y4 - BH / 2, 2.0, y5 + BH / 2)    # compute → figures
+    arr(ax, 9.75, y4 - BH / 2, 7.1, y5 + BH / 2)    # engine → narrator
+    arr(ax, 9.75, y4 - BH / 2, 11.0, y5 + BH / 2)   # engine → firewall
+    arr(ax, 8.8, y5, 9.4, y5)                         # narrator → firewall
 
-    # ── Row 5: Mid-outputs ─────────────────────────────────────
-    y5 = 9.1
-    draw_box(ax, 2.2, y5, 3.5, bh, 'list[Figure]',
-             sublabel='value · status · graph_path · citation',
-             color='#f0a500', text_color='#1a1a2e')
+    # "Numbers never flow through LLM" callout
+    ax.text(6.5, 7.95, '⚠  Numbers never flow through LLM — firewall rejects any mismatch',
+            ha='center', va='center', color=RED,
+            fontsize=8.5, fontweight='bold',
+            bbox=dict(boxstyle='round,pad=0.35', facecolor='#fff5f5',
+                      edgecolor=RED, linewidth=1.0))
+    ax.axhline(7.6, color=DIVIDER, linewidth=0.5, linestyle=':')
 
-    # LLM boundary dashed box
-    llm_box = FancyBboxPatch((6.0, y5 - 0.55), 4.0, 1.1,
-                              boxstyle="round,pad=0.08",
-                              linewidth=2, linestyle='--',
-                              edgecolor='#e74c3c', facecolor='none', zorder=2)
-    ax.add_patch(llm_box)
-    ax.text(8.0, y5 + 0.62, 'LLM BOUNDARY', ha='center', va='bottom',
-            color='#e74c3c', fontsize=8, fontweight='bold', zorder=5)
+    # ── Row 6: Outputs ─────────────────────────────────────────────────────────
+    y6 = 6.7
+    section(y6, 'OUTPUTS')
+    box(ax, 2.0, y6, 3.6, BH, 'report/writer.py → .xlsx',
+        fc=TEAL_LT, ec=TEAL, fontsize=8.5)
+    box(ax, 6.5, y6, 3.6, BH, 'reconciler.py',
+        sublabel='vs answer key',
+        fc=TEAL_LT, ec=TEAL, fontsize=8.5)
+    box(ax, 11.0, y6, 3.6, BH, 'audit/log.py',
+        sublabel='Postgres append-only · SHA-256',
+        fc=TEAL_LT, ec=TEAL, fontsize=8.5)
 
-    draw_box(ax, 8.0, y5, 3.6, bh, 'narrator.py',
-             sublabel='(stub or claude-haiku)', color='#e74c3c')
+    arr(ax, 2.0, y5 - BH / 2, 2.0, y6 + BH / 2)     # figures → writer
+    arr(ax, 3.6, y5, 6.5, y5)                          # figures → reconciler (horizontal)
+    arr(ax, 6.5, y5 - BH / 2, 6.5, y6 + BH / 2)
+    arr(ax, 11.0, y5 - BH / 2, 11.0, y6 + BH / 2)
 
-    draw_box(ax, 12.5, y5, 3.0, bh, 'firewall/checker.py',
-             sublabel='6 gates · numeric token check', color='#c0392b')
+    ax.axhline(6.15, color=DIVIDER, linewidth=0.5, linestyle=':')
 
-    # "Numbers never flow through LLM" note
-    ax.text(7, 8.2, '⚠  Numbers never flow through LLM', ha='center', va='center',
-            color='#ff6b6b', fontsize=10, fontweight='bold',
-            bbox=dict(boxstyle='round,pad=0.3', facecolor='#2d0a0a',
-                      edgecolor='#e74c3c', linewidth=1.5))
+    # ── Outputs row ─────────────────────────────────────────────────────────────
+    y7 = 5.3
+    for cx, lbl in zip(COL, ['out/report_firm_{a,b,c}.xlsx',
+                              'out/figures_firm_{a,b,c}.json',
+                              'postgres:audit_event']):
+        box(ax, cx, y7, 3.6, BH * 0.85, lbl,
+            fc=GRAY_LT, ec=GRAY, lw=0.8, fontsize=8, bold=False)
+    arr(ax, 2.0, y6 - BH / 2, 2.0, y7 + BH * 0.85 / 2)
+    arr(ax, 6.5, y6 - BH / 2, 6.5, y7 + BH * 0.85 / 2)
+    arr(ax, 11.0, y6 - BH / 2, 11.0, y7 + BH * 0.85 / 2)
 
-    ax.text(0.3, y5, 'NARRATE', ha='left', va='center', color='#777799',
-            fontsize=8, fontweight='bold')
-
-    arrow(ax, 5.0, y4 - bh / 2, 2.2, y5 + bh / 2)
-    arrow(ax, 10.0, y4 - bh / 2, 8.0, y5 + bh / 2)
-    arrow(ax, 10.0, y4 - bh / 2, 12.5, y5 + bh / 2)
-    arrow(ax, 9.8, y5, 11.0, y5)    # narrator → checker
-
-    # ── Row 6: Final outputs ───────────────────────────────────
-    y6 = 6.9
-    draw_box(ax, 2.2, y6, 3.5, bh, 'report/writer.py → .xlsx', color='#00897b')
-    draw_box(ax, 7.0, y6, 3.5, bh, 'reconciler.py',
-             sublabel='vs answer key', color='#00897b')
-    draw_box(ax, 11.8, y6, 3.5, bh, 'audit/log.py',
-             sublabel='Postgres append-only\nSHA-256 hash chain', color='#00897b')
-
-    ax.text(0.3, y6, 'OUTPUTS', ha='left', va='center', color='#777799',
-            fontsize=8, fontweight='bold')
-
-    arrow(ax, 2.2, y5 - bh / 2, 2.2, y6 + bh / 2)
-    arrow(ax, 8.0, y5 - bh / 2, 7.0, y6 + bh / 2)
-    arrow(ax, 12.5, y5 - bh / 2, 11.8, y6 + bh / 2)
-    # figures → reconciler
-    arrow(ax, 3.9, y5, 7.0, y5)
-    arrow(ax, 5.5, y6, 5.3, y6)
-
-    # Separator lines between rows
-    for ysep in [15.1, 13.4, 11.7, 9.85, 7.7]:
-        ax.axhline(ysep, color='#333355', linewidth=0.5, linestyle=':', zorder=1)
-
-    # Legend
-    legend_y = 6.0
-    for i, (label, color) in enumerate([
-        ('Input files', '#555577'),
-        ('Parsers', '#4a90d9'),
-        ('Knowledge Graph', '#7b68ee'),
-        ('Compute', '#50c878'),
-        ('LLM / Narrative', '#e74c3c'),
-        ('Outputs', '#00897b'),
-        ('Figures', '#f0a500'),
-    ]):
-        lx = 1.0 + i * 1.9
-        rect = FancyBboxPatch((lx - 0.65, legend_y - 0.2), 1.3, 0.4,
-                               boxstyle="round,pad=0.05",
-                               facecolor=color, edgecolor='white', linewidth=0.8)
-        ax.add_patch(rect)
-        tc = '#1a1a2e' if color in ('#50c878', '#f0a500') else 'white'
-        ax.text(lx, legend_y, label, ha='center', va='center',
-                color=tc, fontsize=7, fontweight='bold')
-
-    plt.tight_layout(pad=0.5)
-    out = '/Users/hendra/Projects/Others/interopera-test/docs/architecture_flow.png'
-    plt.savefig(out, dpi=150, bbox_inches='tight', facecolor='#1a1a2e')
+    plt.tight_layout(pad=0.6)
+    out = f'{OUT_DIR}/architecture_flow.png'
+    plt.savefig(out, dpi=150, bbox_inches='tight', facecolor=BG)
     plt.close()
     print(f'Saved: {out}')
 
 
-# ─────────────────────────────────────────────────────────────
-# DIAGRAM 2: LLM Containment Gates (horizontal lanes)
-# ─────────────────────────────────────────────────────────────
+# ── DIAGRAM 2: LLM Containment Gates ──────────────────────────────────────────
 
 def diagram_layers():
-    fig, ax = plt.subplots(figsize=(14, 10))
-    fig.patch.set_facecolor('#1a1a2e')
-    ax.set_facecolor('#1a1a2e')
-    ax.set_xlim(0, 14)
-    ax.set_ylim(0, 10)
+    fig, ax = plt.subplots(figsize=(13, 9))
+    fig.patch.set_facecolor(BG)
+    ax.set_facecolor(BG)
+    ax.set_xlim(0, 13)
+    ax.set_ylim(0.4, 9.4)
     ax.axis('off')
 
     # Title
-    ax.text(7, 9.55, 'LLM Containment — Six Structural Gates', ha='center', va='center',
-            color='white', fontsize=15, fontweight='bold')
-    ax.text(7, 9.15, 'InterOpera Compliance Reporting System', ha='center', va='center',
-            color='#aaaaff', fontsize=10)
+    ax.text(6.5, 9.1, 'LLM Containment — Six Structural Gates', ha='center',
+            color=SLATE, fontsize=14, fontweight='bold')
+    ax.text(6.5, 8.72, 'InterOpera Compliance Reporting System', ha='center',
+            color=SUBTEXT, fontsize=10)
+    ax.axhline(8.45, color=DIVIDER, linewidth=0.8)
+
+    # Column headers
+    ax.text(0.55, 8.3, '#', ha='center', color=GRAY, fontsize=8, fontweight='bold')
+    ax.text(1.05, 8.3, 'Gate', ha='left', color=GRAY, fontsize=8, fontweight='bold')
+    ax.text(8.2, 8.3, 'Where enforced', ha='left', color=GRAY, fontsize=8, fontweight='bold')
+    ax.axhline(8.1, color=DIVIDER, linewidth=0.5)
 
     gates = [
-        {
-            'num': '1',
-            'name': 'Static Import Gate',
-            'desc': 'No `import anthropic` in `src/compute/`',
-            'where': 'AST scan in test_llm_containment.py',
-            'color': '#e74c3c',
-        },
-        {
-            'num': '2',
-            'name': 'Dependency-Injection Gate',
-            'desc': 'ComputeEngine.__init__(driver, config) — no LLM client arg',
-            'where': 'src/compute/engine.py constructor',
-            'color': '#e67e22',
-        },
-        {
-            'num': '3',
-            'name': 'Report-From-Figures-Only Gate',
-            'desc': 'write_report(figures, path) — no narrative arg',
-            'where': 'src/report/writer.py',
-            'color': '#f39c12',
-        },
-        {
-            'num': '4',
-            'name': 'Human-Approval Gate',
-            'desc': 'PENDING_REVIEW nodes block compute until approved',
-            'where': 'engine.py Gate 1 + Gate 2',
-            'color': '#27ae60',
-        },
-        {
-            'num': '5',
-            'name': 'Reconcile Gate',
-            'desc': 'Reconciler has no LLM imports — all deterministic Python',
-            'where': 'src/reconcile/reconciler.py',
-            'color': '#2980b9',
-        },
-        {
-            'num': '6',
-            'name': 'Numeric Token Firewall',
-            'desc': 'Every narrative number checked against computed set',
-            'where': 'src/firewall/checker.py — _NUMBER_RE + symmetric normalization',
-            'color': '#8e44ad',
-        },
+        ('Static Import Gate',
+         'No `import anthropic` in src/compute/',
+         'tests/test_llm_containment.py — AST scan'),
+        ('Dependency-Injection Gate',
+         'ComputeEngine.__init__(driver, config) — no LLM client arg',
+         'src/compute/engine.py constructor'),
+        ('Report-From-Figures-Only Gate',
+         'write_report(figures, path) — no narrative arg',
+         'src/report/writer.py'),
+        ('Human-Approval Gate',
+         'PENDING_REVIEW nodes block compute until approved',
+         'engine.py Gate 1 + Gate 2'),
+        ('Reconcile Gate',
+         'Reconciler has no LLM imports — all deterministic Python',
+         'src/reconcile/reconciler.py'),
+        ('Numeric Token Firewall',
+         'Every narrative number checked against computed set',
+         'src/firewall/checker.py — _NUMBER_RE + symmetric norm'),
     ]
 
     n = len(gates)
-    # Vertical range for the gates section
-    y_top = 8.7
-    y_bot = 0.9
-    lane_h = (y_top - y_bot) / n
-    lx_start = 0.6
-    lx_end = 10.8
-    lane_w = lx_end - lx_start
+    y_start = 7.9
+    row_h = 1.05
 
-    # LLM source box (top right)
-    llm_x = 12.5
-    llm_y_top = 8.5
-    llm_box = FancyBboxPatch((llm_x - 0.85, llm_y_top - 0.35), 1.7, 0.7,
-                              boxstyle="round,pad=0.06",
-                              facecolor='#c0392b', edgecolor='white', linewidth=1.5, zorder=3)
-    ax.add_patch(llm_box)
-    ax.text(llm_x, llm_y_top, 'LLM\n(claude-haiku)', ha='center', va='center',
-            color='white', fontsize=9, fontweight='bold', zorder=4)
+    for i, (name, desc, where) in enumerate(gates):
+        cy = y_start - i * row_h
+        y_top = cy + row_h / 2 - 0.04
+        y_bot = cy - row_h / 2 + 0.04
 
-    # Output box (bottom right)
-    out_x = 12.5
-    out_y = 1.2
-    out_box = FancyBboxPatch((out_x - 1.1, out_y - 0.42), 2.2, 0.85,
-                              boxstyle="round,pad=0.06",
-                              facecolor='#27ae60', edgecolor='white', linewidth=1.5, zorder=3)
-    ax.add_patch(out_box)
-    ax.text(out_x, out_y, 'xlsx Report\n+ Audit Log', ha='center', va='center',
-            color='white', fontsize=9, fontweight='bold', zorder=4)
+        # Row background — alternating subtle shade
+        row_fc = '#f0f4ff' if i % 2 == 0 else BG
+        row_patch = FancyBboxPatch(
+            (0.3, y_bot), 12.4, row_h - 0.08,
+            boxstyle='round,pad=0.02',
+            facecolor=row_fc, edgecolor=DIVIDER, linewidth=0.6, zorder=1,
+        )
+        ax.add_patch(row_patch)
 
-    # Vertical arrow on right: LLM → gates → output
-    ax.annotate('', xy=(llm_x, out_y + 0.43), xytext=(llm_x, llm_y_top - 0.35),
-                arrowprops=dict(arrowstyle='->', color='#aaaaaa', lw=2,
-                                connectionstyle='arc3,rad=0.0'), zorder=2)
-
-    for i, gate in enumerate(gates):
-        lane_y_top = y_top - i * lane_h
-        lane_y_bot = lane_y_top - lane_h
-        cy = (lane_y_top + lane_y_bot) / 2
-
-        # Lane background
-        bg = FancyBboxPatch((lx_start, lane_y_bot + 0.04), lane_w, lane_h - 0.08,
-                             boxstyle="round,pad=0.04",
-                             facecolor=gate['color'] + '22',
-                             edgecolor=gate['color'],
-                             linewidth=1.5, zorder=2)
-        ax.add_patch(bg)
-
-        # Gate number circle
-        circle = plt.Circle((lx_start + 0.45, cy), 0.28, color=gate['color'], zorder=3)
-        ax.add_patch(circle)
-        ax.text(lx_start + 0.45, cy, gate['num'], ha='center', va='center',
-                color='white', fontsize=13, fontweight='bold', zorder=4)
+        # Number badge
+        circ = plt.Circle((0.62, cy), 0.24, color=BLUE, zorder=3)
+        ax.add_patch(circ)
+        ax.text(0.62, cy, str(i + 1), ha='center', va='center',
+                color='white', fontsize=10, fontweight='bold', zorder=4)
 
         # Gate name
-        ax.text(lx_start + 1.1, cy + 0.13, gate['name'],
-                ha='left', va='center', color='white',
-                fontsize=11, fontweight='bold', zorder=3)
+        ax.text(1.1, cy + 0.17, name, ha='left', va='center',
+                color=TEXT, fontsize=9.5, fontweight='bold', zorder=2)
 
         # Description
-        ax.text(lx_start + 1.1, cy - 0.08, gate['desc'],
-                ha='left', va='center', color='#dddddd',
-                fontsize=8.5, zorder=3)
+        ax.text(1.1, cy - 0.12, desc, ha='left', va='center',
+                color=SUBTEXT, fontsize=8, zorder=2)
 
-        # Where enforced
-        where_x = lx_end - 0.1
-        where_box = FancyBboxPatch((where_x - 2.6, cy - 0.22), 2.6, 0.44,
-                                    boxstyle="round,pad=0.04",
-                                    facecolor='#ffffff11',
-                                    edgecolor=gate['color'] + 'aa',
-                                    linewidth=0.8, zorder=3)
-        ax.add_patch(where_box)
-        ax.text(where_x - 1.3, cy, gate['where'],
-                ha='center', va='center', color='#bbbbff',
-                fontsize=7.5, style='italic', zorder=4,
-                wrap=True)
+        # Where enforced — right column, muted box
+        where_patch = FancyBboxPatch(
+            (8.1, cy - 0.28), 4.5, 0.56,
+            boxstyle='round,pad=0.04',
+            facecolor='white', edgecolor=DIVIDER, linewidth=0.8, zorder=2,
+        )
+        ax.add_patch(where_patch)
+        ax.text(8.2, cy, where, ha='left', va='center',
+                color=SUBTEXT, fontsize=7.5, style='italic', zorder=3)
 
-        # Barrier line on the right side arrow
-        barrier_y = lane_y_top - 0.04
-        if i < n - 1:
-            ax.plot([llm_x - 0.25, llm_x + 0.25], [barrier_y, barrier_y],
-                    color=gate['color'], lw=2.5, zorder=3, solid_capstyle='round')
-            ax.text(llm_x - 0.6, barrier_y, '▶', ha='right', va='center',
-                    color=gate['color'], fontsize=10, zorder=4)
+    # Vertical separator between description and where-enforced columns
+    ax.axvline(8.0, ymin=0.1, ymax=0.93, color=DIVIDER, linewidth=0.6, linestyle=':')
 
-    # Column headers
-    ax.text(lx_start + 0.45, y_top + 0.15, '#', ha='center', va='bottom',
-            color='#888888', fontsize=8, fontweight='bold')
-    ax.text(lx_start + 1.1, y_top + 0.15, 'Gate Name & Description', ha='left', va='bottom',
-            color='#888888', fontsize=8, fontweight='bold')
-    ax.text(lx_end - 1.3, y_top + 0.15, 'Where Enforced', ha='center', va='bottom',
-            color='#888888', fontsize=8, fontweight='bold')
+    # Footer
+    ax.text(6.5, 0.7, 'All six gates verified by automated tests in tests/test_llm_containment.py',
+            ha='center', color=GRAY, fontsize=8.5, style='italic')
+    ax.axhline(0.88, color=DIVIDER, linewidth=0.5)
 
-    # Divider
-    ax.axhline(y_top + 0.05, xmin=0.04, xmax=0.78,
-               color='#333355', linewidth=0.8, linestyle='--')
-
-    # Footer note
-    ax.text(7, 0.45, 'All six gates are verified by automated tests in tests/test_llm_containment.py',
-            ha='center', va='center', color='#888888', fontsize=9, style='italic')
-
-    plt.tight_layout(pad=0.3)
-    out = '/Users/hendra/Projects/Others/interopera-test/docs/architecture_layers.png'
-    plt.savefig(out, dpi=150, bbox_inches='tight', facecolor='#1a1a2e')
+    plt.tight_layout(pad=0.5)
+    out = f'{OUT_DIR}/architecture_layers.png'
+    plt.savefig(out, dpi=150, bbox_inches='tight', facecolor=BG)
     plt.close()
     print(f'Saved: {out}')
 
