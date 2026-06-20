@@ -162,7 +162,7 @@ This document describes the module architecture of the compliance reporting syst
 **Firewall:**
 - `src/firewall/checker.py` is the enforcement point for the output firewall.
 - It reads the figure set (source of truth) and the candidate narrative string.
-- Returns `(passed: bool, violations: list[str])`.
+- Returns a `FirewallResult` dataclass (`passed: bool`, `offending_numbers: list[str]`, `checked_numbers: list[str]`).
 - The firewall is one-directional: it reads numbers from Figures, never writes numbers back to Figures.
 
 **Audit events emitted:** `report_exported`. The `narrate` command does not emit an audit event.
