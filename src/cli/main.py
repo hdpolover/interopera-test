@@ -348,7 +348,9 @@ def evaluate(
         exit_code = 1
         console.print(f"[red]Traceability FAIL: {[f.figure for f in trace_failed]}[/red]")
 
-    narrator = Narrator(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    # evaluate uses the deterministic stub — firewall check must be reproducible
+    # regardless of whether an API key is present. Use `narrate` for LLM narrative.
+    narrator = Narrator(api_key=None)
     narrative = narrator.write_narrative(figures, firm_id=firm_id)
     fw_result = check_firewall(narrative, figures)
     if not fw_result.passed:

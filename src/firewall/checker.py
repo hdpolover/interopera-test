@@ -64,6 +64,14 @@ _ALLOWLIST_SECTION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Allowlist category 3: digits that are part of a hex/alphanumeric hash token
+# (e.g. chunk IDs like "827726a0", "42b7002a").  The LLM may include such IDs
+# when referencing regulatory basis strings; those digits are identifiers, not
+# financial figures, so they must not trigger a firewall failure.
+# Matches a run of 6+ hex characters (digits + a-f) that contains at least one
+# letter — pure digit strings of that length are caught by normal checks.
+_HEX_TOKEN_RE = re.compile(r"\b[0-9a-f]*[a-f][0-9a-f]*\b", re.IGNORECASE)
+
 
 def _is_allowlisted(token: str, original_text: str) -> bool:
     """Return True if *token* falls into a documented allowlist category.
@@ -81,6 +89,14 @@ def _is_allowlisted(token: str, original_text: str) -> bool:
     # number portion of a keyword+number phrase anywhere in the text.
     for m in _ALLOWLIST_SECTION_RE.finditer(original_text):
         if m.group(1) == token:
+            return True
+
+    # Category 3: token is a digit-prefix of a hex/alphanumeric hash string.
+    # E.g. "827726" extracted from "827726a0" — the parent token is an ID, not
+    # a financial figure, so it is exempt from the firewall check.
+    bare = token.rstrip("%")
+    for m in _HEX_TOKEN_RE.finditer(original_text):
+        if m.group().startswith(bare) and len(m.group()) > len(bare):
             return True
 
     return False
