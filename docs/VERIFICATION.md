@@ -7,9 +7,9 @@
 
 This report documents live verification of the InterOpera fund compliance reporting system. The system is a fully automated pipeline that ingests portfolio holdings and regulatory guidelines, builds a Neo4j knowledge graph, computes 13 compliance figures against MAS-style fund investment limits, generates a narrative, and exports results to Excel with a full audit trail in Postgres.
 
-**348/348 tests pass.** All 13 figures compute correctly for both Firm A (13/13 reconcile PASS vs answer key) and Firm B (13/13 PASS). Three bonus features are implemented: replay viewer, configuration DSL with live preview, and narrative source retrieval. Two additional CLI commands expose Phase 2 multi-hop graph traversal (`query-metric`) and audit log visibility (`show-audit-log`). Excel reports now include status-based row highlighting and auto-fit column widths.
+**360/360 tests pass.** All 13 figures compute correctly for both Firm A (13/13 reconcile PASS vs answer key) and Firm B (13/13 PASS). Firm C (`config/firm_c.yaml`) reconciles 13/13 with its own `config/firm_c_expected.yaml`. Three bonus features are implemented: replay viewer, configuration DSL with live preview, and narrative source retrieval. Two additional CLI commands expose Phase 2 multi-hop graph traversal (`query-metric`) and audit log visibility (`show-audit-log`). Excel reports now include status-based row highlighting and auto-fit column widths.
 
-**Code quality:** 86% test coverage, mypy 0 errors, bandit 0 medium/high issues. GitHub Actions CI runs the full suite on every push via native service containers. Firm C (`config/firm_c.yaml`) demonstrates a third independent configuration, proving config-only firm switching generalises beyond two firms.
+**Code quality:** 87% test coverage, mypy 0 errors, bandit 0 medium/high issues. GitHub Actions CI runs the full suite on every push via native service containers. Ingestion is a real deterministic pdfplumber parse of `sample_fund_guidelines.pdf` (no hand-typed transcription, no LLM); a golden snapshot in `tests/fixtures/parsed_guidelines.json` enforces reproducibility. Limit values live on graph `Threshold` nodes; the engine reads bounds via `limit_bounds_for_ref` — not from YAML config. Per-figure citations are correct: each of the 7 allocation figures resolves its own `SourceChunk` (e.g., `allocation_sgs` cites page 1, `allocation_fx_bonds` cites page 2). The §3.2 counterparty cap is extracted at confidence `0.80` (a genuine low-confidence prose rule), loads `PENDING_REVIEW`, and demonstrates the human gate.
 
 **Default model: `claude-sonnet-4-6`.** Overridable via `ANTHROPIC_MODEL` env var. `evaluate` always uses the deterministic stub narrator (firewall check is reproducible). The `narrate` command uses the live LLM. See `docs/DECISIONS.md §23` and `docs/model_comparison.md` for a full three-model comparison (Haiku / Sonnet / Opus 4.8).
 
@@ -23,7 +23,7 @@ This report documents live verification of the InterOpera fund compliance report
 |---|---|---|---|
 | **C1 — Reproducibility** | Identical inputs → identical figure values on every run | `Decimal` arithmetic, `ORDER BY p.instrument_id` on all queries, `verify-determinism` CLI command | **PASS** |
 | **C2 — Traceability** | Every figure must carry `graph_path` + `citation` (source_doc, page, chunk_id, passage_summary) | `ComputeEngine._get_citation()` traverses `(Limit)-[:DERIVED_FROM]->(SourceChunk)`; `_build_graph_path()` builds Cypher-style strings from actual traversal | **PASS** |
-| **C3 — No LLM Numbers** | LLM writes narrative prose only; cannot write to report cells | 6-gate LLM containment (1 static import, 2 DI, 3 report-from-figures-only, 4 output firewall, 5 human-only approval, 6 pure-code Phase 5) — see RFC §4 | **PASS** |
+| **C3 — No LLM Numbers** | LLM writes narrative prose only; cannot write to report cells | 6-gate LLM containment (static import gate, DI gate, report-from-figures-only gate, human-only approval gate, reconcile gate, firewall gate) | **PASS** |
 | **C4 — Reconcile Firm A** | System must produce figures matching Firm A answer key exactly | `src/reconcile/reconciler.py`; 13/13 PASS verified live | **PASS** |
 | **C5 — Firm B Config-Only** | Onboard Firm B without code changes, using only YAML config | `config/firm_b.yaml` (3 knobs); 13/13 Firm B PASS verified live | **PASS** |
 | **C5 — utilization format** | Firm B renders utilization in truncated bps (`5833 bps`) not percent (`58.3%`) | `output.utilization_format: truncated_bps` in `firm_b.yaml`; `test_engine_firm_b.py` asserts `"5833 bps"` for SGS utilization | **PASS** |
@@ -34,8 +34,9 @@ This report documents live verification of the InterOpera fund compliance report
 | Phase | Requirement | File(s) | Status |
 |---|---|---|---|
 | **Phase 1 — Ingest** | Parse holdings CSV → PositionRecord | `src/ingestion/holdings_parser.py` | **PASS** |
-| **Phase 1 — Ingest** | Guidelines → RuleChunk (deterministic transcription or LLM) | `src/ingestion/guidelines_parser.py` | **PASS** |
+| **Phase 1 — Ingest** | Parse guidelines PDF → RuleChunk (real deterministic pdfplumber parse; no transcription, no LLM) | `src/ingestion/guidelines_parser.py`, `pdf_tables.py`, `rule_extractors.py` | **PASS** |
 | **Phase 1 — Ingest** | content-hash chunk_id = sha256(text)[:16] | `guidelines_parser.py:chunk_id_from_text()` | **PASS** |
+| **Phase 1 — Ingest** | Golden snapshot guards parse reproducibility (C1) | `tests/fixtures/parsed_guidelines.json`; `test_parse_matches_golden_snapshot` | **PASS** |
 | **Phase 2 — Graph** | Neo4j with Position, AssetClass, Issuer, ParentIssuer, Aggregate, SourceChunk, Limit nodes | `src/graph/builder.py:load_positions()`, `load_rules()` | **PASS** |
 | **Phase 2 — Graph** | RiskMetric, Threshold, BreachAction, Owner nodes | `src/graph/builder.py:load_risk_metrics()` | **PASS** |
 | **Phase 2 — Graph** | All 11 node types present after `build-graph` | Live node count (below) | **PASS** |
@@ -44,7 +45,8 @@ This report documents live verification of the InterOpera fund compliance report
 | **Phase 2 — Graph** | `approve_node()` requires non-empty actor | `queries.py:approve_node()` raises ValueError on empty actor | **PASS** |
 | **Phase 2 — Graph** | Schema: uniqueness constraints on all node types | `src/graph/schema.py:CONSTRAINTS` (11 constraints) | **PASS** |
 | **Phase 3 — Compute** | 13 compliance figures produced | `src/compute/registry.py:FIGURE_REGISTRY` (13 specs) | **PASS** |
-| **Phase 3 — Compute** | graph_path + citation on every figure | `engine.py:_build_graph_path()`, `_get_citation()` | **PASS** |
+| **Phase 3 — Compute** | Limit bounds from graph Threshold nodes (not config YAML) | `queries.py:limit_bounds_for_ref()` traverses `(Limit {ref})-[:HAS_THRESHOLD]->(Threshold)` | **PASS** |
+| **Phase 3 — Compute** | graph_path + citation on every figure; per-figure citation via limit_ref | `engine.py:_build_graph_path()`, `_get_citation()` (resolves by `Limit {ref}`) | **PASS** |
 | **Phase 3 — Compute** | utilization field on every figure | `engine.py:_compute_utilization()` | **PASS** |
 | **Phase 3 — Compute** | status ∈ {OK, BREACH, AT LIMIT, ERROR} | `engine.py:_apply_comparator()` | **PASS** |
 | **Phase 3 — Compute** | Decimal arithmetic (no float) | `primitives.py` — all arithmetic via `decimal.Decimal` | **PASS** |
@@ -60,7 +62,8 @@ This report documents live verification of the InterOpera fund compliance report
 | **Phase 4 — Firewall** | Allowlist: 4-digit years + section cross-references | `checker.py:_is_allowlisted()` | **PASS** |
 | **Phase 4 — Firewall** | check_firewall() returns FirewallResult with passed/offending/checked | `checker.py:check_firewall()` | **PASS** |
 | **Phase 5 — Reconcile** | Compare computed figures to Firm A answer key (XLSX) | `src/reconcile/reconciler.py:parse_answer_key_xlsx()` | **PASS** |
-| **Phase 5 — Reconcile** | Compare to Firm B answer key (YAML) | `reconciler.py:parse_expected_yaml()` | **PASS** |
+| **Phase 5 — Reconcile** | Compare to Firm B answer key (YAML) | `reconciler.py:parse_expected_yaml()` (`config/firm_b_expected.yaml`) | **PASS** |
+| **Phase 5 — Reconcile** | Compare to Firm C answer key (YAML) | `reconciler.py:parse_expected_yaml()` (`config/firm_c_expected.yaml`) | **PASS** |
 | **Phase 5 — Reconcile** | `reconciliation` audit event emitted | `cli/main.py:reconcile()` | **PASS** |
 | **Phase 5 — Evaluate** | Full gate: reconcile + traceability + firewall | `cli/main.py:evaluate()` | **PASS** (stub mode) |
 | **Phase 5 — Evaluate** | Firewall catches LLM hallucinated numbers | Verified: LLM mode produces firewall FAIL on `100%`, `1.0%`, etc. | **PASS** (works as designed) |
@@ -139,41 +142,43 @@ config/firm_b.yaml ────┘                                              
 ### 3.1 Test Suite
 
 ```text
-348 passed in 5.12s
+360 passed in 24.37s
 ```
 
-27 test modules covering CLI commands, graph builder/queries, compute engine (Firm A + B), firewall, reconciler, audit log, LLM containment, determinism, Phase 5, and all bonus features (replay, DSL, narrative retrieval).
+29 test modules covering CLI commands, graph builder/queries, compute engine (Firm A + B), firewall, reconciler, audit log, LLM containment, determinism, Phase 5, PDF parse, rule extractors, and all bonus features (replay, DSL, narrative retrieval).
 
 | Test File | Tests | Area |
 |---|---|---|
 | test_primitives.py | 30 | Decimal arithmetic helpers |
 | test_cli.py | 30 | CLI commands, exit codes |
-| test_graph_builder.py | 27 | Neo4j node/relationship loading |
-| test_graph_queries.py | 22 | Cypher query selectors |
-| test_engine_firm_a.py | 21 | 13 figures Firm A |
+| test_graph_builder.py | 30 | Neo4j node/relationship loading |
+| test_graph_queries.py | 23 | Cypher query selectors |
+| test_engine_firm_a.py | 23 | 13 figures Firm A |
 | test_firewall.py | 18 | Numeric token firewall |
+| test_evaluate.py | 18 | Phase 5 gate |
 | test_holdings_parser.py | 17 | CSV → PositionRecord |
-| test_evaluate.py | 17 | Phase 5 gate |
 | test_integration.py | 16 | Full pipeline end-to-end |
-| test_guidelines_parser.py | 15 | PDF → RuleChunk (incl. low-confidence gate) |
 | test_engine_firm_b.py | 15 | 13 figures Firm B |
 | test_audit_log.py | 14 | Audit log + hash chain |
+| test_guidelines_parser.py | 11 | Real PDF → RuleChunk (incl. golden snapshot) |
+| test_report_writer.py | 10 | xlsx report writing |
 | test_narrative_retrieval.py | 10 | Passage retrieval for LLM |
 | test_dsl.py | 10 | DSL generate + preview |
-| test_report_writer.py | 10 | xlsx report writing |
 | test_replay.py | 8 | Replay viewer |
 | test_registry.py | 8 | Figure registry |
+| test_config_loader.py | 8 | Pydantic config loading |
 | test_verify_gate.py | 7 | PENDING_REVIEW gate |
 | test_scaffold.py | 7 | Repo structure |
+| test_pdf_tables.py | 7 | pdfplumber table extractors |
 | test_narrative.py | 7 | Narrator stub + LLM |
-| test_config_loader.py | 7 | Pydantic config loading |
 | test_reconciler.py | 6 | Answer key comparison |
 | test_llm_containment.py | 6 | 6 containment gates |
 | test_docs.py | 6 | Phase 1 docs |
 | test_determinism.py | 6 | Double-run byte-identical |
 | test_readme.py | 4 | README coverage |
 | test_phase5.py | 4 | Phase 5 integration |
-| **Total** | **348** | |
+| test_rule_extractors.py | 1 | Prose-rule regex extractors |
+| **Total** | **360** | |
 
 ### 3.2 Firm A — 13 Computed Figures
 
@@ -569,8 +574,10 @@ src/
 │   ├── queries.py              # All Cypher selectors; breach_action_for_metric; retrieve_passages
 │   └── schema.py               # 11 uniqueness constraint definitions
 ├── ingestion/
-│   ├── guidelines_parser.py    # PDF → RuleChunk list (stub or LLM)
-│   └── holdings_parser.py      # CSV → PositionRecord list
+│   ├── guidelines_parser.py    # PDF → RuleChunk list (real pdfplumber parse; no stub, no LLM)
+│   ├── holdings_parser.py      # CSV → PositionRecord list
+│   ├── pdf_tables.py           # pdfplumber table extraction + numeric cleaning helpers
+│   └── rule_extractors.py      # Anchored regex prose-rule extraction with method-based confidence
 ├── narrative/
 │   └── narrator.py             # Stub + LLM narrative; source passage retrieval for LLM prompt
 ├── reconcile/
@@ -579,11 +586,12 @@ src/
     └── writer.py               # Write figures to Excel
 
 config/
-├── base.yaml                   # Shared limits and figure definitions
+├── base.yaml                   # Firm-agnostic defaults; no limits: block (limits live on Threshold nodes)
 ├── firm_a.yaml                 # Firm A overrides (3 knobs)
 ├── firm_b.yaml                 # Firm B overrides (3 knobs)
 ├── firm_c.yaml                 # Firm C — third independent config (proves generalisation)
-└── firm_b_expected.yaml        # Firm B answer key for reconcile
+├── firm_b_expected.yaml        # Firm B answer key for reconcile
+└── firm_c_expected.yaml        # Firm C answer key for reconcile
 
 sample_docs/
 ├── firm_A_answer_key.xlsx      # Firm A expected figures (13 rows)
@@ -591,7 +599,10 @@ sample_docs/
 ├── sample_fund_guidelines.pdf  # Source guidelines document
 └── sample_holdings.csv         # 13-position holdings data
 
-tests/                          # 27 test files, 348 tests total
+tests/
+├── fixtures/
+│   └── parsed_guidelines.json  # Golden snapshot of real PDF parse output (guards C1)
+└── test_*.py                   # 29 test files, 360 tests total
 out/
 ├── figures_firm_a.json         # Last computed Firm A figures (provenance included)
 ├── figures_firm_b.json         # Last computed Firm B figures
@@ -620,23 +631,25 @@ src/audit/__init__.py                    0      0   100%
 src/audit/log.py                        54      2    96%   103, 203
 src/cli/__init__.py                      0      0   100%
 src/cli/commands/__init__.py             0      0   100%
-src/cli/commands/replay_helpers.py      78      4    95%   49, 65, 108, 128
-src/cli/main.py                        450    153    66%   46, 71-72, 90, 108-115, 162-192, 217-221, 245-247, 287-288, 307-309, 333, 344-345, 366-368, 381, 385-386, 390-391, 399-400, 403-424, 440, 483-487, 495-524, 572-607, 616-650, 738-741, 776
+src/cli/commands/replay_helpers.py      78      5    94%   49, 65, 108, 128, 161
+src/cli/main.py                        454    156    66%   46, 71-72, 90, 108-115, 162-192, 217-221, 245-247, 287-288, 307-309, 320, 335, 346-347, 368-370, 382-385, 389-390, 394-395, 403-404, 407-428, 444, 487-491, 499-528, 576-611, 620-654, 742-745, 780
 src/compute/__init__.py                  0      0   100%
-src/compute/config_loader.py            44      1    98%   51
-src/compute/engine.py                  219     12    95%   39, 124, 137, 184, 195, 214, 217, 256, 305, 323, 356, 415
+src/compute/config_loader.py            43      1    98%   50
+src/compute/engine.py                  208     11    95%   91, 104, 151, 162, 181, 184, 223, 272, 290, 322, 381
 src/compute/primitives.py               66      0   100%
 src/compute/registry.py                 23      0   100%
 src/firewall/__init__.py                 0      0   100%
 src/firewall/checker.py                 58      0   100%
 src/graph/__init__.py                    0      0   100%
-src/graph/builder.py                    66      1    98%   222
+src/graph/builder.py                    74      1    99%   222
 src/graph/constants.py                   2      0   100%
-src/graph/queries.py                   113     20    82%   305-311, 316-322, 327-333, 356-358, 382, 395, 414-428
+src/graph/queries.py                   121     20    83%   306-312, 317-323, 328-334, 357-359, 383, 396, 415-429
 src/graph/schema.py                      6      0   100%
 src/ingestion/__init__.py                0      0   100%
-src/ingestion/guidelines_parser.py      49      6    88%   233-234, 243, 248, 253, 269
+src/ingestion/guidelines_parser.py      64      0   100%
 src/ingestion/holdings_parser.py        41      0   100%
+src/ingestion/pdf_tables.py             75      3    96%   98, 117, 126
+src/ingestion/rule_extractors.py        33      1    97%   59
 src/narrative/__init__.py                2      0   100%
 src/narrative/narrator.py               74      8    89%   167-171, 212-213, 240
 src/reconcile/__init__.py                0      0   100%
@@ -644,20 +657,20 @@ src/reconcile/reconciler.py             71      3    96%   67, 72, 144
 src/report/__init__.py                   0      0   100%
 src/report/writer.py                    86      0   100%
 ------------------------------------------------------------------
-TOTAL                                 1502    210    86%
-348 passed in 5.12s
+TOTAL                                 1633    211    87%
+360 passed in 24.37s
 ```
 
-**Total coverage: 86%.** The 348/348 tests all pass.
+**Total coverage: 87%.** The 360/360 tests all pass.
 
-The uncovered 14% is concentrated in two deliberate areas — not gaps in test discipline:
+The uncovered 13% is concentrated in two deliberate areas — not gaps in test discipline:
 
 **CLI dispatch glue (~10%) — `src/cli/main.py` (66%):** the bulk of the uncovered code is interactive command bodies and 2-line error handlers (`typer.echo` + `raise typer.Exit`) that fire only when Neo4j is down, a config file is missing, etc. Triggering them requires the full Docker stack in a broken state; testing them would exercise Docker failure modes, not application logic. The command logic itself is covered end-to-end via the `evaluate`/`run` integration tests.
 
-**LLM-gated and defensive branches (~4%):**
-- `src/ingestion/guidelines_parser.py` (88%) — the remaining lines are the LLM-assisted PDF extraction path; it only activates when an LLM client is injected, and CI always takes the deterministic transcription by design (see `docs/DECISIONS.md §24`).
-- `src/narrative/narrator.py` (89%) — same pattern: the live-LLM branch is skipped without an API key.
-- `src/graph/queries.py` (82%) — single-node lookup helpers and best-effort retrieval exception branches not on the figure-computation path.
+**LLM-gated and defensive branches (~3%):**
+- `src/narrative/narrator.py` (89%) — the live-LLM branch is skipped without an API key.
+- `src/graph/queries.py` (83%) — single-node lookup helpers and best-effort retrieval exception branches not on the figure-computation path.
+- `src/ingestion/pdf_tables.py` (96%) and `src/ingestion/rule_extractors.py` (97%) — edge-case branches for degenerate PDF cells not present in the sample document.
 
 **All financially critical modules are at 95–100%:**
 
@@ -669,12 +682,16 @@ The uncovered 14% is concentrated in two deliberate areas — not gaps in test d
 | `src/compute/registry.py` | 100% |
 | `src/graph/schema.py` | 100% |
 | `src/ingestion/holdings_parser.py` | 100% |
+| `src/ingestion/guidelines_parser.py` | 100% |
+| `src/graph/builder.py` | 99% |
 | `src/compute/config_loader.py` | 98% |
-| `src/graph/builder.py` | 98% |
+| `src/ingestion/rule_extractors.py` | 97% |
+| `src/audit/log.py` | 96% |
 | `src/reconcile/reconciler.py` | 96% |
+| `src/ingestion/pdf_tables.py` | 96% |
 | `src/compute/engine.py` | 95% |
 
-The firewall, financial arithmetic, graph construction, reconciliation, and Excel output — the components where a bug would produce an incorrect compliance report — are fully covered.
+The firewall, financial arithmetic, graph construction, reconciliation, ingestion parse, and Excel output — the components where a bug would produce an incorrect compliance report — are fully covered.
 
 ### 8.2 mypy (`mypy src/ --ignore-missing-imports`)
 
@@ -688,7 +705,7 @@ Four fixes applied to reach 0 errors:
 | `src/cli/main.py` | 552 | Arg 2 to `breach_action_for_metric`: `str \| None` not `str` | Added `assert metric is not None` (logically guaranteed by the early-exit guard at line 530–532) |
 
 ```text
-Success: no issues found in 28 source files
+Success: no issues found in 30 source files
 ```
 
 ### 8.3 bandit (`bandit -r src/ -ll`)

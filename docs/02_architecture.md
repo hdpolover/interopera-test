@@ -70,16 +70,18 @@ This document describes the module architecture of the compliance reporting syst
 
 ### Ingestion
 
-**Files:** `src/ingestion/holdings_parser.py`, `src/ingestion/guidelines_parser.py`
+**Files:** `src/ingestion/holdings_parser.py`, `src/ingestion/guidelines_parser.py`, `src/ingestion/pdf_tables.py`, `src/ingestion/rule_extractors.py`
 
 **Responsibility:** Parse raw inputs into typed Python objects. Emit `PositionRecord` and `RuleChunk` objects.
 
 - `holdings_parser.py`: reads a CSV file row by row. Each row becomes a `PositionRecord` dataclass. Fields are validated at parse time (numeric fields coerced, required fields checked). Parsing is deterministic — same CSV always produces same records. `extraction_confidence = 1.0` for all position records.
-- `guidelines_parser.py`: produces `RuleChunk` objects from the guidelines. By default it loads a deterministic, hand-verified transcription of the PDF (an LLM-assisted `pdfplumber` extraction path exists but is off by default — see `docs/DECISIONS.md §24`). `chunk_id = sha256(text.encode()).hexdigest()[:16]`. The `passage_summary` field is a prose summary (no figures). `extraction_confidence` reflects extraction certainty; chunks below 0.85 load `PENDING_REVIEW`.
+- `pdf_tables.py`: deterministic pdfplumber table extraction with numeric-cleaning helpers (`pct_fraction`, `sgd_int`, `year_range`, `normalize_ws`, `extract_allocations`, `extract_risk_metrics`, `duration_bounds`, `dv01_cap`). No LLM imports.
+- `rule_extractors.py`: anchored regex patterns (`extract_prose_rules`) applied to normalized page text. Extracts 5 prose rules (non-IG cap, corporate concentration, GRE cap, liquidity floor, counterparty cap). Confidence is a deterministic function of parse method: `_HIGH = 0.92` for rules with a unique, specific anchor phrase; `_LOW = 0.80` for rules in crowded multi-percentage paragraphs.
+- `guidelines_parser.py`: assembles `RuleChunk` objects from `pdf_tables` and `rule_extractors`. `chunk_id = sha256(text.encode()).hexdigest()[:16]`. No `_STUB_PASSAGES` table; no LLM involvement. A golden snapshot (`tests/fixtures/parsed_guidelines.json`) plus `test_parse_matches_golden_snapshot` enforce byte-identical output across runs (constraint C1).
 
 **Outputs fed into:** Graph layer (builder.py).
 
-**LLM involvement:** Limited to `passage_summary` generation in `guidelines_parser.py`. The LLM output is stored as a string attribute on `RuleChunk`; it does not flow into any computation.
+**LLM involvement: NONE.** The ingestion layer is pure code — pdfplumber + regex. No LLM client is injected by any CLI command.
 
 ---
 
@@ -90,8 +92,8 @@ This document describes the module architecture of the compliance reporting syst
 **Responsibility:** Create and maintain the Neo4j property graph that represents the full compliance universe for a run.
 
 - `schema.py`: defines all node labels, relationship types, and required properties. Serves as the single source of truth for graph structure.
-- `builder.py`: consumes `PositionRecord` and `RuleChunk` lists. Creates nodes with provenance properties and `DERIVED_FROM` edges from rule-derived nodes back to their `SourceChunk`. Node `status` is set at creation time: deterministic nodes (positions, asset classes, issuers — derived from the authoritative CSV at `extraction_confidence = 1.0`) load `VERIFIED`; rule-derived `Limit`/`SourceChunk` nodes load `VERIFIED` when `extraction_confidence ≥ 0.85`, otherwise `PENDING_REVIEW`.
-- `queries.py`: read-only Cypher query helpers used by the Compute engine and by the Human-Verify gate to list pending nodes.
+- `builder.py`: consumes `PositionRecord` and `RuleChunk` lists. Creates nodes with provenance properties and `DERIVED_FROM` edges from rule-derived nodes back to their `SourceChunk`. Node `status` is set at creation time: deterministic nodes (positions, asset classes, issuers — `extraction_confidence = 1.0`) load `VERIFIED`; rule-derived `Limit`/`SourceChunk` nodes load `VERIFIED` when `extraction_confidence ≥ 0.85`, otherwise `PENDING_REVIEW`.
+- `queries.py`: read-only Cypher query helpers used by the Compute engine and by the Human-Verify gate to list pending nodes. Includes `limit_bounds_for_ref(driver, limit_ref)` which traverses `(Limit {ref})-[:HAS_THRESHOLD]->(Threshold)` to retrieve bound values used by the engine.
 
 **Low-confidence rule nodes load `PENDING_REVIEW`.** The Compute engine refuses to traverse any node whose anchor `Limit` is still `PENDING_REVIEW`, returning an `ERROR` figure instead of a number until a human approves it via `verify-graph`.
 
@@ -105,10 +107,10 @@ This document describes the module architecture of the compliance reporting syst
 
 **Responsibility:** Traverse the verified graph and produce the 13 `Figure` objects deterministically.
 
-- `config_loader.py`: resolves the effective config via `deep_merge(base.yaml, firm_X.yaml)`. The firm overlay sets only the three knobs that vary between firms (`non_ig.include_fallen_angels`, `concentration.gre.group_key`, `output.utilization_format`); all 13 figure definitions and limit/source bindings come from `base.yaml`. Emits a `FirmConfig` Pydantic model (`extra="forbid"`). Hashes the resolved effective config for the audit log. Emits `config_loaded` audit event.
+- `config_loader.py`: resolves the effective config via `deep_merge(base.yaml, firm_X.yaml)`. The firm overlay sets only the three knobs that vary between firms (`non_ig.include_fallen_angels`, `concentration.gre.group_key`, `output.utilization_format`). `config/base.yaml` contains no `limits:` block — limit values live on graph `Threshold` nodes, not in YAML. Emits a `FirmConfig` Pydantic model (`extra="forbid"`). Hashes the resolved effective config for the audit log. Emits `config_loaded` audit event.
 - `registry.py`: maps aggregator/comparator names (from graph nodes) to Python callables. Allows new figure types to be registered without touching engine logic.
 - `primitives.py`: pure functions — `nav`, `sum_pct`, `weighted_avg_duration`, `dv01`, `max_group_pct` (aggregators); `within_min_max`, `max_cap`, `min_floor` (comparators); `percent_1dp`, `truncated_bps`, `years_2dp`, `sgd_dv01` (formatters). No I/O, no LLM calls. All use `Decimal` arithmetic.
-- `engine.py`: `ComputeEngine.__init__(driver, config: FirmConfig)` — takes only a Neo4j driver and a FirmConfig. No LLM client parameter. Traverses the graph topologically, calls primitives, assembles `Figure` objects. Each Figure carries: `status` ∈ `{OK, BREACH, AT LIMIT}` (or `ERROR` for untraceable/blocked figures); `graph_path` as a Cypher-style string encoding the actual traversal; `citation` as a dict `{ "source_doc": str, "page": int, "chunk_id": str, "passage_summary": str }`.
+- `engine.py`: `ComputeEngine.__init__(driver, config: FirmConfig)` — takes only a Neo4j driver and a FirmConfig. No LLM client parameter. For each figure, traverses `(Limit {ref: spec.limit_ref})-[:HAS_THRESHOLD]->(Threshold)` via `limit_bounds_for_ref` to obtain numeric bounds, then traverses positions and aggregates. Assembles `Figure` objects each carrying: `status` ∈ `{OK, BREACH, AT LIMIT}` (or `ERROR` for untraceable/blocked figures); `graph_path` as a Cypher-style string encoding the actual traversal; `citation` as a dict `{ "source_doc": str, "page": int, "chunk_id": str, "passage_summary": str }`. Citations are resolved per `limit_ref`, so each of the 7 allocation figures cites its own `SourceChunk`.
 
 **LLM involvement: NONE.** Static import gate test asserts that `src/compute/` contains no imports of `anthropic`, `openai`, `httpx`, or `requests`.
 
@@ -160,7 +162,7 @@ This document describes the module architecture of the compliance reporting syst
 **Firewall:**
 - `src/firewall/checker.py` is the enforcement point for the output firewall.
 - It reads the figure set (source of truth) and the candidate narrative string.
-- Returns a `FirewallResult` dataclass (`passed: bool`, `offending_numbers: list[str]`, `checked_numbers: list[str]`).
+- Returns `(passed: bool, violations: list[str])`.
 - The firewall is one-directional: it reads numbers from Figures, never writes numbers back to Figures.
 
 **Audit events emitted:** `report_exported`. The `narrate` command does not emit an audit event.
@@ -175,13 +177,13 @@ This document describes the module architecture of the compliance reporting syst
 | `AssetClass` | Asset class taxonomy node (e.g., IG_CORP, HY_CORP, GOVT). |
 | `Issuer` | Legal entity that issued the security held in a Position. |
 | `ParentIssuer` | Parent entity of an Issuer, used for consolidated exposure calculations. |
-| `Limit` | A numeric limit extracted from a RuleChunk (e.g., max 10% per issuer). |
-| `Aggregate` | An intermediate aggregation node (e.g., total notional in an asset class). |
-| `RiskMetric` | A computed risk measure node referenced during figure computation. |
-| `Threshold` | A boundary value (min/max) from a Limit or RiskMetric. |
-| `BreachAction` | The action to take on a threshold breach (e.g., notify, halt). |
-| `Owner` | The business unit or portfolio manager responsible for a position or limit. |
-| `SourceChunk` | A raw RuleChunk from the guidelines PDF. All rule-derived nodes have a DERIVED_FROM edge pointing here. |
+| `Limit` | A limit rule node extracted from a RuleChunk. Keyed by `ref` (e.g., `allocation_sgs_limit`). Each figure's `limit_ref` points to one `Limit` node. |
+| `Aggregate` | An intermediate aggregation node (e.g., total non-IG exposure). |
+| `RiskMetric` | A market risk metric node (e.g., `portfolio_duration`, `portfolio_dv01`). |
+| `Threshold` | Numeric bounds for a `Limit` or `RiskMetric`. Properties: `min_value`, `max_value`, `cap_value`, `floor_value`, `unit`, `key` (uniqueness key; risk thresholds also carry `metric`). |
+| `BreachAction` | The action to take on a threshold breach (e.g., PM notification, Risk Committee alert). |
+| `Owner` | The business unit or portfolio manager notified on a breach (e.g., Portfolio Manager, Chief Risk Officer). |
+| `SourceChunk` | A raw RuleChunk from the guidelines PDF. All rule-derived nodes have a `DERIVED_FROM` edge pointing here. Carries `source_doc`, `page`, `chunk_id`, `passage_summary`, `extraction_confidence`, `status`. |
 
 ---
 
@@ -193,10 +195,10 @@ This document describes the module architecture of the compliance reporting syst
 | `ISSUED_BY` | Position → Issuer | Links a position to its issuer. |
 | `ROLLS_UP_TO` | Issuer → ParentIssuer | Represents the GRE parent-child issuer hierarchy. |
 | `CONTRIBUTES_TO` | AssetClass → Aggregate | A non-IG asset class contributes to the `non_ig` aggregate bucket. |
-| `HAS_THRESHOLD` | RiskMetric → Threshold | Links a risk metric to its numeric boundary. |
+| `HAS_THRESHOLD` | Limit → Threshold | Links a `Limit` node to its `Threshold` node carrying numeric bounds (`min_value`, `max_value`, `cap_value`, `floor_value`, `unit`). The engine traverses this edge via `limit_bounds_for_ref` to obtain bounds at compute time. |
 | `HAS_BREACH_ACTION` | RiskMetric → BreachAction | Links a risk metric to the action triggered on breach. |
 | `NOTIFIES` | BreachAction → Owner | Identifies who is notified when a breach action fires. |
-| `DERIVED_FROM` | Limit or RiskMetric → SourceChunk | Provenance edge: traces every rule-derived node back to its source PDF chunk. |
+| `DERIVED_FROM` | Limit or RiskMetric → SourceChunk | Provenance edge: traces every rule-derived node back to its source PDF chunk. Used by `_get_citation` to resolve per-figure citations. |
 
 ---
 

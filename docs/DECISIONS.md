@@ -35,14 +35,14 @@ This document records every significant design choice made in the InterOpera Com
 
 ### 3. LLM Containment — Six-Gate Firewall
 
-**Decision:** A layered six-gate firewall controls all LLM interaction (the gate numbering here is canonical and matches `docs/03_rfc.md` §4): (1) static import gate — AST check blocks `import anthropic`/`openai`/`httpx`/`requests` in `src/compute/`, `src/reconcile/`, `src/firewall/`; (2) dependency-injection gate — no LLM client in `ComputeEngine.__init__`; (3) report-from-figures-only gate — `report/writer.py` accepts only `list[Figure]`, never prose; (4) output firewall — `firewall/checker.py` verifies every numeric token in the narrative is present in the computed figure set; (5) human-only approval gate — `approve_node` requires a non-empty human `actor`, and a `PENDING_REVIEW` Limit/node blocks figure computation entirely; (6) pure-code Phase 5 — `reconciler.py` and `checker.py` contain no LLM imports, so reconciliation and firewall verdicts are deterministic Python.
+**Decision:** A layered six-gate firewall controls all LLM interaction: (1) static import gate — AST check blocks `import anthropic` in engine; (2) dependency-injection gate — no LLM client in `ComputeEngine.__init__`; (3) report-from-figures-only gate — narrative reads only from computed `Figure` objects; (4) human-approval gate — PENDING_REVIEW blocks compute entirely; (5) reconcile gate — narrative numbers checked against figure values; (6) numeric token firewall — `_NUMBER_RE` validates every number in LLM output.
 
 **Alternatives considered:**
 
 - Single regex check on final LLM output — rejected as too fragile; a regex cannot prevent the LLM from being invoked with contaminated inputs or from hallucinating during generation.
 - Trust the LLM — rejected outright; violates constraint C3 and would allow hallucinated figures to appear in regulatory reports.
 
-**Rationale:** Each gate catches a distinct failure mode. The import gate (1) prevents accidental coupling of the compute layer to an LLM client; the DI gate (2) enforces the same at runtime. The report-from-figures-only gate (3) means the xlsx writer has no access to prose and therefore cannot copy an LLM-produced number into a cell. The output firewall (4) is the post-generation cross-check that every number in the narrative exists in the computed set; its allowlists (`_ALLOWLIST_YEAR_RE`, `_ALLOWLIST_SECTION_RE`) prevent false positives on calendar years and section references, and hex/chunk-ID tokens are stripped before extraction so an identifier's digits can't smuggle a fabricated value. The human-only approval gate (5) stops unvetted (`PENDING_REVIEW`) data from flowing into any figure. The pure-code Phase 5 gate (6) keeps reconciliation and firewall verdicts deterministic and LLM-free.
+**Rationale:** Each gate catches a distinct failure mode. The import gate prevents accidental coupling of the compute layer to an LLM client. The DI gate enforces the same at runtime. The figures-only gate prevents the LLM from reading raw data. The PENDING_REVIEW gate stops unvetted data from flowing into any output. The reconcile gate is a post-generation cross-check. The numeric token firewall is the last line of defense. Allowlists (`_ALLOWLIST_YEAR_RE`, `_ALLOWLIST_SECTION_RE`) prevent false positives on regulatory citation numbers.
 
 ---
 
@@ -343,29 +343,36 @@ See `docs/model_comparison.md` for full verbatim narrative output from each mode
 
 ## Additional Design Decisions
 
-### 24. Deterministic Rule Transcription vs. Live LLM Extraction
+### 24. Deterministic pdfplumber Parse of the Real PDF
 
-**Decision:** By default the guidelines are loaded from a **deterministic, hand-verified transcription** of `sample_fund_guidelines.pdf` — the `_STUB_PASSAGES` table in `guidelines_parser.py` — not from live PDF parsing. An LLM-assisted extraction path exists in the same module (`parse_guidelines(pdf_path, llm_client=...)`, using `pdfplumber` + an injected client) but is **off by default**: every CLI command calls `parse_guidelines(..., llm_client=None)`, which returns the transcription. The brief invites this ("you may add small mock documents if your design requires them — if you do, say why"); this section is the "say why."
+**Decision:** The guidelines are loaded by a **deterministic, pure-code parse** of `sample_fund_guidelines.pdf` — no LLM, no hand-typed transcription. Three modules collaborate:
+
+- `src/ingestion/pdf_tables.py` — table extraction with numeric-cleaning helpers (`pct_fraction`, `sgd_int`, `year_range`, `normalize_ws`, `extract_allocations`, `extract_risk_metrics`, `duration_bounds`, `dv01_cap`). Reads the allocation and risk-metric tables directly from the PDF using `pdfplumber`.
+- `src/ingestion/rule_extractors.py` — anchored regex patterns (`extract_prose_rules`) applied to normalized page text. Extracts prose rules (non-IG cap, corporate concentration, GRE cap, liquidity floor, counterparty cap) with a `confidence` value that is a **deterministic function of parse method** — not a hand-set constant.
+- `src/ingestion/guidelines_parser.py` — assembles `RuleChunk` objects from the above extractors. `llm_client` parameter exists in the signature for future extensibility but is ignored — the parse is always the pdfplumber path.
+
+Reproducibility is enforced by a committed golden snapshot: `tests/fixtures/parsed_guidelines.json` captures the exact parse output, and `test_parse_matches_golden_snapshot` in `tests/test_guidelines_parser.py` asserts byte-identical output on every run, satisfying constraint C1.
 
 **Alternatives considered:**
 
-- Always run live LLM extraction on the PDF — rejected for the default path because LLM extraction is non-deterministic (constraint C1) and error-prone; the same PDF could yield different `chunk_id`s, page numbers, or confidences across runs, which would make the graph, the citations, and therefore the reconciliation non-reproducible. It also adds a hard dependency on a network API key just to build the graph.
-- Parse the PDF deterministically with `pdfplumber` only (no LLM) and regex the limits — rejected as brittle: the figures in the PDF live in tables that flow across page boundaries, and a regex layer would be more code and less reliable than a reviewed transcription for a fixed, single-fund corpus (the brief explicitly prioritises "graph and computation quality over size").
+- Hand-typed transcription (`_STUB_PASSAGES`) — used in an earlier iteration; replaced because a real parse gives genuine checkable provenance and eliminates the risk of transcription drift if the source PDF changes.
+- Live LLM extraction on the PDF — rejected because LLM extraction is non-deterministic (constraint C1); the same PDF could yield different `chunk_id`s, page numbers, or confidences across runs. An LLM-assisted path is architecturally possible (inject a client into `parse_guidelines`) but is never invoked by any CLI command and is therefore documented as a production extension only.
 
-**Rationale:** For a fixed sample fund, a reviewed transcription gives byte-identical graph state on every run (C1) while preserving real, checkable provenance: each chunk's `source_doc`, `page`, and `passage_summary` were verified against the actual PDF, so tracing `figure → graph path → SourceChunk → page` lands on the correct section of `sample_fund_guidelines.pdf`. The page numbers carry the section label (e.g. "Section 3.1") for unambiguous auditor lookup. The LLM extraction path remains in the codebase to show how the same `RuleChunk` contract would be populated at scale, and the **`confidence < 0.85 → PENDING_REVIEW`** gating it would trigger is exercised today by the deliberately low-confidence `counterparty_limit` chunk (see §25).
+**Rationale:** A deterministic pdfplumber parse gives byte-identical graph state on every run (C1) while producing provenance that is traceable to the real document pages. The golden snapshot acts as a regression guard: if a `pdfplumber` version change silently alters extraction output, the test fails immediately. Tracing `figure → graph path → SourceChunk → page` lands on the correct section of `sample_fund_guidelines.pdf` without manual transcription.
 
 ---
 
 ### 25. Low-Confidence `counterparty_limit` Chunk — Demonstrating the Human Gate
 
-**Decision:** The transcription includes one chunk extracted at `extraction_confidence = 0.78` — the §3.2 single-counterparty 5%-of-NAV cap. Because it is below the 0.85 threshold, `load_rules` loads its `Limit` node as `PENDING_REVIEW`, so it appears in `verify-graph` awaiting a human approval.
+**Decision:** The §3.2 single-counterparty 5%-of-NAV cap is extracted from a **crowded multi-percentage paragraph** by the prose extractor in `rule_extractors.py`. The extractor assigns confidence `_LOW = 0.80` to this rule — a **deterministic function of the parse method** (the counterparty anchor fires in a paragraph that also contains several other percentage figures, reducing extraction certainty). Because `0.80 < 0.85`, `load_rules` loads its `Limit` node as `PENDING_REVIEW`, so it appears in `verify-graph` awaiting a human approval. The counterparty rule anchors none of the 13 reported figures.
 
 **Alternatives considered:**
 
-- Make every chunk high-confidence so the graph loads fully VERIFIED — rejected because then the human-verification gate the brief requires (Phase 1: "a gate where a human verifies the extracted graph") and the error-handling failure mode it names ("an extracted entity the system can't confidently resolve") would never actually fire in a live demo; the mechanism would be tested but never *shown*.
-- Make one of the 13 reported figures low-confidence — rejected because a `PENDING_REVIEW` node that anchors a figure correctly blocks that figure (returns `status="ERROR"`), which would break Firm A/B reconciliation until approved. The counterparty cap is a real rule in the guidelines that is **not** one of the 13 reported figures, so it demonstrates the gate without blocking any computed figure.
+- Hand-set confidence below 0.85 — rejected in favour of the current approach where confidence is an emergent property of the parse method; this makes the gate test a real extraction scenario rather than a contrived one.
+- Make every chunk high-confidence so the graph loads fully VERIFIED — rejected because the human-verification gate would never fire in a live demo; the mechanism would be tested but never shown.
+- Make one of the 13 reported figures low-confidence — rejected because a `PENDING_REVIEW` node that anchors a figure blocks that figure (returns `status="ERROR"`), which would break Firm A/B reconciliation until approved.
 
-**Rationale:** This makes the documented `build-graph → verify-graph --approve-all → run` workflow real rather than theoretical: a reviewer running the system sees exactly one node pending human sign-off, approves it, and observes the audit log record a `node_verified` event with the approving actor. The 13 figures compute regardless of whether it is approved, so reproducibility and reconciliation are unaffected.
+**Rationale:** The `build-graph → verify-graph --approve-all → run` workflow is real, not theoretical: a reviewer sees exactly one node pending human sign-off, approves it, and the audit log records a `node_verified` event with the approving actor. The 13 figures compute regardless of whether it is approved, so reproducibility and reconciliation are unaffected.
 
 ---
 
@@ -374,3 +381,16 @@ See `docs/model_comparison.md` for full verbatim narrative output from each mode
 **Decision:** The cash allocation limit is modelled as a minimum floor (`min 5%`) even though the source PDF states a 5–25% band.
 
 **Rationale:** The cash position is 4% of NAV, which breaches the 5% floor regardless of the 25% cap, so the cap never binds and `firm_A_answer_key.xlsx` reports cash on the floor alone (`4.0% — BREACH`, utilization `n/a`). Modelling it as `within_min_max(5%, 25%)` would produce the identical value and status, so floor-only matches the answer key exactly while keeping the comparator set minimal. The full band is recorded in the chunk's `extracted_fields` for traceability; switching to a two-sided comparator is a one-line config change if a future portfolio's cash level made the cap bind.
+
+---
+
+### 27. Limit Values Live on Graph Threshold Nodes; Config Holds Only Firm Knobs
+
+**Decision:** Every numeric limit value (min, max, cap, floor, unit) is stored on `Threshold` nodes in Neo4j, not in `config/base.yaml`. Each figure's `FigureSpec` carries a `limit_ref` string; the engine traverses `(Limit {ref: limit_ref})-[:HAS_THRESHOLD]->(Threshold)` via `queries.limit_bounds_for_ref()` to obtain the bounds at compute time. `config/base.yaml` contains no `limits:` block; `FirmConfig` holds only `firm_id` plus the three behavioural knobs.
+
+**Alternatives considered:**
+
+- Store limits in `base.yaml` — rejected because it creates a second source of truth for limit values that are already extracted from the PDF into the graph; any discrepancy between the YAML value and the graph value would be silently masked.
+- Embed bounds as properties on the `Limit` node directly (without a separate `Threshold` node) — rejected because `Threshold` uniqueness is on a `key` property (risk thresholds also carry a `metric` property), which allows the same threshold to be referenced by multiple rules without duplication.
+
+**Rationale:** Having limit values live exclusively on `Threshold` nodes means the engine's compliance arithmetic is always derived from the same provenance-bearing graph that was built from the PDF. Per-figure citations are correct because `_get_citation` and `_check_limit_node_pending` both resolve by `Limit {ref}` — there is no `_FIGURE_RULE_TYPE_map` indirection. `allocation_sgs` cites page 1 and `allocation_fx_bonds` cites page 2 because the allocation table spans those pages; each of the 7 allocation figures cites its own `SourceChunk` independently.

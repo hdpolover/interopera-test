@@ -39,9 +39,11 @@ The pipeline consists of seven stages. Each stage is labelled as either **AUTONO
 
 **Processing:**
 - `holdings_parser.py` reads the CSV and emits one `PositionRecord` object per row. Fields: `instrument_id`, `instrument_name`, `asset_class`, `issuer_name`, `issuer_type`, `parent_issuer`, `credit_rating`, `downgraded_from`, `market_value_sgd`, `modified_duration`.
-- `guidelines_parser.py` produces one `RuleChunk` object per rule (by default from a deterministic, hand-verified transcription of the PDF; an LLM-assisted extraction path exists but is off by default — see `docs/DECISIONS.md §24`). Fields: `chunk_id` (sha256 of passage text, first 16 hex chars), `source_doc`, `page`, `passage`, `passage_summary` (prose summary — does NOT contain any figure), `extracted_fields`, `extraction_confidence` (float 0–1).
+- `guidelines_parser.py` performs a **real, deterministic pdfplumber parse** of `sample_fund_guidelines.pdf` and emits one `RuleChunk` object per rule. Three modules collaborate: `pdf_tables.py` extracts allocation and risk-metric tables; `rule_extractors.py` applies anchored regex to prose paragraphs; `guidelines_parser.py` assembles `RuleChunk` objects. No LLM is used. Fields: `chunk_id` (sha256 of passage text, first 16 hex chars), `source_doc`, `page`, `passage`, `passage_summary` (deterministic prose description — does NOT contain any computed figure), `extracted_fields`, `extraction_confidence` (float 0–1, a deterministic function of parse method).
 
 **Content-hash chunk_id:** `chunk_id = sha256(text.encode()).hexdigest()[:16]`. Two identical passages will always produce the same chunk_id, enabling deduplication across re-runs.
+
+**Golden-snapshot guard (C1):** `tests/fixtures/parsed_guidelines.json` captures the exact parser output; `test_parse_matches_golden_snapshot` asserts byte-identical output on every run.
 
 **Audit event emitted:** none at this stage (events are emitted from the graph layer onward).
 
@@ -52,7 +54,7 @@ The pipeline consists of seven stages. Each stage is labelled as either **AUTONO
 **Processing:**
 - `graph_builder.py` creates Neo4j nodes for every `PositionRecord` and `RuleChunk` plus derived nodes (AssetClass, Issuer, ParentIssuer, Limit, Aggregate, etc.).
 - Provenance edges (`DERIVED_FROM`) link every rule-derived `Limit` and `RiskMetric` node back to the `SourceChunk` node that produced it.
-- **Node `status` is set at creation:** deterministic nodes (positions, asset classes, issuers — derived from the authoritative CSV at `extraction_confidence = 1.0`) load `VERIFIED`; rule-derived `Limit`/`SourceChunk` nodes load `VERIFIED` when `extraction_confidence ≥ 0.85`, otherwise `PENDING_REVIEW`.
+- **Node `status` is set at creation:** deterministic nodes (positions, asset classes, issuers — `extraction_confidence = 1.0`) load `VERIFIED`; rule-derived `Limit`/`SourceChunk` nodes load `VERIFIED` when `extraction_confidence ≥ 0.85`, otherwise `PENDING_REVIEW`.
 - `run_id` is assigned (UUID4) and recorded on each audit event for the run.
 
 **Audit event emitted:** `graph_construction` (see catalogue below).
@@ -85,8 +87,9 @@ A node may be automatically promoted from `PENDING_REVIEW` to `VERIFIED` without
 
 **Processing:**
 - `engine.py` traverses the verified graph in topological order.
-- Applies registered aggregators (sum, weighted-average, max, count-distinct) and comparators (≤, ≥, between, equals).
-- Produces exactly **13 `Figure` objects**. Each Figure has: `figure_id`, `value` (Decimal, never float), `status` (`OK` / `BREACH` / `AT LIMIT`, or `ERROR` for an untraceable/blocked figure), `graph_path` (Cypher-style string built from the actual traversal, e.g. `(AssetClass:high_yield)-[:CONTRIBUTES_TO]->(Aggregate:non_ig)<-[:CONTRIBUTES_TO]-(AssetClass:structured_credit)`), `citation` (dict: `{ "source_doc": str, "page": int, "chunk_id": str, "passage_summary": str }`), `config_hash`.
+- For each figure, reads numeric bounds by traversing `(Limit {ref: spec.limit_ref})-[:HAS_THRESHOLD]->(Threshold)` via `queries.limit_bounds_for_ref`. Limit values are **not** read from `config/base.yaml` — they live on `Threshold` nodes in Neo4j.
+- Applies registered aggregators (`nav`, `sum_pct`, `weighted_avg_duration`, `dv01`, `max_group_pct`) and comparators (`within_min_max`, `max_cap`, `min_floor`).
+- Produces exactly **13 `Figure` objects**. Each Figure has: `figure_id`, `value` (Decimal, never float), `status` (`OK` / `BREACH` / `AT LIMIT`, or `ERROR` for an untraceable/blocked figure), `graph_path` (Cypher-style string built from the actual traversal), `citation` (dict: `{ "source_doc": str, "page": int, "chunk_id": str, "passage_summary": str }`), `config_hash`. Citations are resolved per `limit_ref`, giving each allocation figure its own `SourceChunk` citation (e.g., `allocation_sgs` cites page 1, `allocation_fx_bonds` cites page 2).
 - **Zero LLM involvement.** The compute layer has no import of `anthropic`, `openai`, `httpx`, or `requests`. This is enforced by a static import gate test.
 
 **Audit event emitted:** `figure_computed` for each of the 13 figures (see catalogue below).
@@ -108,7 +111,7 @@ A node may be automatically promoted from `PENDING_REVIEW` to `VERIFIED` without
 ### Stage 6 — Report Export (AUTONOMOUS)
 
 **Processing:**
-- `report_writer.py` writes all 13 figures to an xlsx file (populating the provided `report_template.xlsx`). Column layout: Section, Metric, Value, Limit, Utilization, Status, Source (graph path → doc/page).
+- `report_writer.py` writes all 13 figures to an xlsx file. Column layout: figure_id, value, status, citation, graph_path.
 - The xlsx writer reads **exclusively from the list of `Figure` objects**. No narrative string is passed to the report writer (narrative is written to a separate file).
 - Optionally, `narrator.py` generates a prose summary using the LLM. The narrative is firewalled: every numeric token in the narrative must appear in the computed figures set (enforced by `src/firewall/checker.py`).
 
