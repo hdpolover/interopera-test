@@ -350,7 +350,8 @@ assert logger.verify_chain()
 │   ├── reconcile/             # Reconciler against answer keys
 │   └── report/                # xlsx report writer
 ├── bin/
-│   └── fundra                 # Shell wrapper — use instead of full docker compose run
+│   ├── fundra                 # Shell wrapper — use instead of full docker compose run
+│   └── run_all.sh             # Full pipeline: build-graph + run/evaluate for Firm A/B/C (invoked by `docker compose up`)
 ├── tests/                     # Full test suite (362 tests across 29 files)
 ├── docker-compose.yml
 ├── init.sql                   # Postgres schema + append-only trigger
@@ -389,5 +390,7 @@ These are noted but not wired in the Docker Compose demo stack:
   currently connects as the Postgres superuser (`interopera`) so the `REVOKE UPDATE, DELETE` on
   `app_role` is belt-and-suspenders only — production must use a non-superuser `app_role`
   connection to enforce the INSERT-only constraint at the connection level. (3) `TRUNCATE`
-  bypasses row-level DELETE triggers, so production should also `REVOKE TRUNCATE` on
-  `audit_event` from all roles and restrict table ownership to a dedicated schema owner.
+  bypasses row-level DELETE triggers, so `init.sql` also issues `REVOKE TRUNCATE ON audit_event FROM PUBLIC`
+  and `FROM app_role` — non-superuser roles cannot TRUNCATE. Residual caveat: a Postgres superuser still
+  bypasses REVOKE, so production should restrict schema ownership to a dedicated non-superuser owner and
+  avoid connecting the application as a superuser.

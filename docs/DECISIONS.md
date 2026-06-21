@@ -202,7 +202,7 @@ This document records every significant design choice made in the InterOpera Com
 - Bare Python venv with manually started dependencies — rejected because it requires every developer to manually start Neo4j and Postgres, manage their versions, and handle port conflicts; a source of environment drift.
 - Kubernetes — rejected because it is operationally correct for production but adds significant complexity (Helm, cluster provisioning, RBAC) disproportionate to a single-machine compliance batch tool.
 
-**Rationale:** Docker Compose gives dev/CI environment parity with a single `docker compose up` command. Service health checks (`healthcheck:` stanzas on both Neo4j and Postgres) ensure dependencies are ready before the app starts, eliminating race-condition failures in CI. The `${VAR:-default}` pattern allows port overrides via `.env` without changing `docker-compose.yml`.
+**Rationale:** Docker Compose gives dev/CI environment parity with a single `docker compose up` command. Service health checks (`healthcheck:` stanzas on both Neo4j and Postgres) ensure dependencies are ready before the app starts, eliminating race-condition failures in CI. The `${VAR:-default}` pattern allows port overrides via `.env` without changing `docker-compose.yml`. The `app` service's `command` runs `bash bin/run_all.sh`, which orchestrates the full pipeline — `build-graph`, then `run` + `evaluate --json` for each of Firms A, B, and C — so `docker compose up --build` alone produces every output in `out/` with no further manual steps.
 
 ---
 

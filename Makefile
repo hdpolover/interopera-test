@@ -1,5 +1,5 @@
 .PHONY: build up down clean test coverage graph \
-        run-a run-b run-c evaluate-a evaluate-b narrate-a \
+        run-a run-b run-c evaluate-a evaluate-b evaluate-c narrate-a \
         query-metric audit-log lint typecheck security
 
 # ── Services ──────────────────────────────────────────────────────────────────
@@ -50,6 +50,9 @@ evaluate-a:
 
 evaluate-b:
 	docker compose run --rm app python -m src.cli.main evaluate --firm B
+
+evaluate-c:
+	docker compose run --rm app python -m src.cli.main evaluate --firm C
 
 narrate-a:
 	docker compose run --rm app python -m src.cli.main narrate --firm A

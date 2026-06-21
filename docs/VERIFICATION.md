@@ -515,7 +515,7 @@ File: `src/audit/log.py`
 
 Two tamper-evidence mechanisms:
 
-1. **Postgres trigger** — a `BEFORE UPDATE OR DELETE` trigger raises an exception for all connections including superuser. Production deployments use a non-superuser `app_role` with `REVOKE UPDATE, DELETE ON audit_event` for defense-in-depth.
+1. **Postgres trigger** — a `BEFORE UPDATE OR DELETE` trigger raises an exception for all connections including superuser. Production deployments use a non-superuser `app_role` with `REVOKE UPDATE, DELETE ON audit_event` for defense-in-depth. `init.sql` also issues `REVOKE TRUNCATE ON audit_event FROM PUBLIC` and `FROM app_role`, so non-superuser UPDATE, DELETE, and TRUNCATE are all blocked at the DB level; residual caveat: a Postgres superuser still bypasses REVOKE.
 2. **SHA-256 hash chain** — each row stores `prev_hash` (previous row's `row_hash`) and `row_hash = sha256(canonical_json + prev_hash)`. Canonical JSON covers `event_type`, `actor`, `config_hash`, `payload` with `sort_keys=True`. Timestamps are excluded from the hash to avoid timezone/precision fragility. `verify_chain()` re-derives all hashes in insertion order.
 
 Events per `run` invocation: `config_loaded`, 13x `figure_computed`, `report_exported`. Also: `graph_construction` (from `build-graph`), `reconciliation` (from `reconcile`/`evaluate`), `node_verified` (from `verify-graph --approve`).
@@ -607,8 +607,13 @@ tests/
 out/
 ├── figures_firm_a.json         # Last computed Firm A figures (provenance included)
 ├── figures_firm_b.json         # Last computed Firm B figures
+├── figures_firm_c.json         # Last computed Firm C figures
 ├── report_firm_a.xlsx          # Firm A Excel report
-└── report_firm_b.xlsx          # Firm B Excel report
+├── report_firm_b.xlsx          # Firm B Excel report
+├── report_firm_c.xlsx          # Firm C Excel report
+├── evaluate_firm_a.json        # Phase 5 gate results for Firm A (reconcile + traceability + firewall)
+├── evaluate_firm_b.json        # Phase 5 gate results for Firm B (reconcile + traceability + firewall)
+└── evaluate_firm_c.json        # Phase 5 gate results for Firm C (reconcile + traceability + firewall)
 
 docs/
 ├── 01_flow_and_audit_events.md # Phase 1: pipeline flow + audit event catalogue
