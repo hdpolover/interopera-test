@@ -57,20 +57,24 @@ def arr(ax, x1, y1, x2, y2):
 
 # ── DIAGRAM 1: Data Flow ───────────────────────────────────────────────────────
 
+AMBER    = '#d97706'   # human-verify gate
+AMBER_LT = '#fef3c7'  # human-verify gate fill
+
+
 def diagram_flow():
-    fig, ax = plt.subplots(figsize=(13, 16))
+    fig, ax = plt.subplots(figsize=(13, 18))
     fig.patch.set_facecolor(BG)
     ax.set_facecolor(BG)
     ax.set_xlim(0, 13)
-    ax.set_ylim(0.5, 16.5)
+    ax.set_ylim(0.5, 18.5)
     ax.axis('off')
 
     # Title
-    ax.text(6.5, 16.1, 'InterOpera Compliance Reporting System', ha='center',
+    ax.text(6.5, 18.1, 'InterOpera Compliance Reporting System', ha='center',
             color=SLATE, fontsize=15, fontweight='bold')
-    ax.text(6.5, 15.65, 'Architecture · Data Flow', ha='center',
+    ax.text(6.5, 17.65, 'Architecture · Data Flow', ha='center',
             color=SUBTEXT, fontsize=11)
-    ax.axhline(15.35, color=DIVIDER, linewidth=0.8)
+    ax.axhline(17.35, color=DIVIDER, linewidth=0.8)
 
     BH = 0.72   # box height
     COL = [2.0, 6.5, 11.0]   # 3 column x-centers
@@ -81,16 +85,16 @@ def diagram_flow():
                 rotation=90 if False else 0)
 
     # ── Row 1: Inputs ──────────────────────────────────────────────────────────
-    y1 = 14.5
+    y1 = 16.5
     section(y1, 'INPUTS')
     for cx, lbl in zip(COL, ['sample_holdings.csv',
                               'sample_fund_guidelines.pdf',
                               'config/firm_{a,b,c}.yaml']):
         box(ax, cx, y1, 3.6, BH, lbl, fc=GRAY_LT, ec=GRAY, lw=1.0, fontsize=8.5)
-    ax.axhline(13.95, color=DIVIDER, linewidth=0.5, linestyle=':')
+    ax.axhline(15.95, color=DIVIDER, linewidth=0.5, linestyle=':')
 
     # ── Row 2: Ingestion ───────────────────────────────────────────────────────
-    y2 = 13.2
+    y2 = 15.2
     section(y2, 'INGEST')
     box(ax, 3.25, y2, 4.2, BH, 'holdings_parser.py',
         fc=BLUE_LT, ec=BLUE)
@@ -99,10 +103,10 @@ def diagram_flow():
         fc=BLUE_LT, ec=BLUE)
     arr(ax, COL[0], y1 - BH / 2, 3.25, y2 + BH / 2)
     arr(ax, COL[1], y1 - BH / 2, 9.75, y2 + BH / 2)
-    ax.axhline(12.7, color=DIVIDER, linewidth=0.5, linestyle=':')
+    ax.axhline(14.7, color=DIVIDER, linewidth=0.5, linestyle=':')
 
     # ── Row 3: Neo4j Graph ─────────────────────────────────────────────────────
-    y3 = 11.8
+    y3 = 13.8
     section(y3, 'GRAPH')
     box(ax, 6.5, y3, 10.8, BH + 0.15, 'Neo4j Knowledge Graph',
         sublabel='11 node types  ·  limit values on Threshold nodes  ·  provenance on every node',
@@ -110,22 +114,31 @@ def diagram_flow():
     arr(ax, 3.25, y2 - BH / 2, 4.5, y3 + (BH + 0.15) / 2)
     arr(ax, 9.75, y2 - BH / 2, 8.5, y3 + (BH + 0.15) / 2)
     arr(ax, COL[2], y1 - BH / 2, COL[2], y3 + (BH + 0.15) / 2)
-    ax.axhline(11.25, color=DIVIDER, linewidth=0.5, linestyle=':')
+    ax.axhline(13.25, color=DIVIDER, linewidth=0.5, linestyle=':')
+
+    # ── Row 3.5: Human-Verify Gate ─────────────────────────────────────────────
+    y3h = 12.3
+    section(y3h, 'VERIFY')
+    box(ax, 6.5, y3h, 10.8, BH + 0.15, 'Human-Verify Gate  ⚠  HUMAN REVIEW REQUIRED',
+        sublabel='criterion: extraction_confidence ≥ 0.85 AND structural validation  ·  PENDING_REVIEW nodes block compute',
+        fc=AMBER_LT, ec=AMBER, lw=1.5, fontsize=9.5)
+    arr(ax, 6.5, y3 - (BH + 0.15) / 2, 6.5, y3h + (BH + 0.15) / 2)
+    ax.axhline(11.75, color=DIVIDER, linewidth=0.5, linestyle=':')
 
     # ── Row 4: Compute ─────────────────────────────────────────────────────────
-    y4 = 10.3
+    y4 = 10.8
     section(y4, 'COMPUTE')
     box(ax, 3.25, y4, 4.2, BH, 'config_loader.py → FirmConfig',
         fc=BLUE_LT, ec=BLUE, fontsize=8.5)
     box(ax, 9.75, y4, 4.2, BH, 'engine.py  ComputeEngine',
         fc=BLUE_LT, ec=BLUE, fontsize=8.5)
-    arr(ax, 4.5, y3 - (BH + 0.15) / 2, 3.25, y4 + BH / 2)
-    arr(ax, 8.5, y3 - (BH + 0.15) / 2, 9.75, y4 + BH / 2)
+    arr(ax, 4.5, y3h - (BH + 0.15) / 2, 3.25, y4 + BH / 2)
+    arr(ax, 8.5, y3h - (BH + 0.15) / 2, 9.75, y4 + BH / 2)
     arr(ax, 5.35, y4, 7.65, y4)   # config → engine
-    ax.axhline(9.8, color=DIVIDER, linewidth=0.5, linestyle=':')
+    ax.axhline(10.3, color=DIVIDER, linewidth=0.5, linestyle=':')
 
     # ── Row 5: Figures + Narrate + Firewall ────────────────────────────────────
-    y5 = 8.8
+    y5 = 9.3
     section(y5, 'NARRATE')
 
     # list[Figure]
@@ -156,15 +169,15 @@ def diagram_flow():
     arr(ax, 8.8, y5, 9.4, y5)                         # narrator → firewall
 
     # "Numbers never flow through LLM" callout
-    ax.text(6.5, 7.95, '⚠  Numbers never flow through LLM — firewall rejects any mismatch',
+    ax.text(6.5, 8.45, '⚠  Numbers never flow through LLM — firewall rejects any mismatch',
             ha='center', va='center', color=RED,
             fontsize=8.5, fontweight='bold',
             bbox=dict(boxstyle='round,pad=0.35', facecolor='#fff5f5',
                       edgecolor=RED, linewidth=1.0))
-    ax.axhline(7.6, color=DIVIDER, linewidth=0.5, linestyle=':')
+    ax.axhline(8.1, color=DIVIDER, linewidth=0.5, linestyle=':')
 
     # ── Row 6: Outputs ─────────────────────────────────────────────────────────
-    y6 = 6.7
+    y6 = 7.2
     section(y6, 'OUTPUTS')
     box(ax, 2.0, y6, 3.6, BH, 'report/writer.py → .xlsx',
         fc=TEAL_LT, ec=TEAL, fontsize=8.5)
@@ -180,10 +193,10 @@ def diagram_flow():
     arr(ax, 6.5, y5 - BH / 2, 6.5, y6 + BH / 2)
     arr(ax, 11.0, y5 - BH / 2, 11.0, y6 + BH / 2)
 
-    ax.axhline(6.15, color=DIVIDER, linewidth=0.5, linestyle=':')
+    ax.axhline(6.65, color=DIVIDER, linewidth=0.5, linestyle=':')
 
     # ── Outputs row ─────────────────────────────────────────────────────────────
-    y7 = 5.3
+    y7 = 5.8
     for cx, lbl in zip(COL, ['out/report_firm_{a,b,c}.xlsx',
                               'out/figures_firm_{a,b,c}.json',
                               'postgres:audit_event']):

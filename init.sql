@@ -23,6 +23,10 @@ GRANT USAGE, SELECT ON SEQUENCE audit_event_id_seq TO app_role;
 REVOKE UPDATE, DELETE ON audit_event FROM PUBLIC;
 REVOKE UPDATE, DELETE ON audit_event FROM app_role;
 
+-- TRUNCATE bypasses row-level BEFORE DELETE triggers, so it must be revoked separately.
+REVOKE TRUNCATE ON audit_event FROM PUBLIC;
+REVOKE TRUNCATE ON audit_event FROM app_role;
+
 -- Trigger function to enforce append-only at the DB level
 CREATE OR REPLACE FUNCTION enforce_audit_append_only()
 RETURNS TRIGGER AS $$

@@ -4,6 +4,12 @@
 
 This document describes the module architecture of the compliance reporting system. The design principle is that **numbers flow in one direction and never loop back through the LLM**. The LLM is structurally incapable of touching a computed figure.
 
+![Architecture flow](architecture_flow.png)
+*Full pipeline data flow: inputs → ingestion → graph → human-verify gate → compute → narrative/firewall → outputs.*
+
+![Architecture layers](architecture_layers.png)
+*Six structural LLM containment gates and where each is enforced.*
+
 ### Module Map (ASCII)
 
 ```
@@ -183,7 +189,7 @@ This document describes the module architecture of the compliance reporting syst
 | `Threshold` | Numeric bounds for a `Limit` or `RiskMetric`. Properties: `min_value`, `max_value`, `cap_value`, `floor_value`, `unit`, `key` (uniqueness key; risk thresholds also carry `metric`). |
 | `BreachAction` | The action to take on a threshold breach (e.g., PM notification, Risk Committee alert). |
 | `Owner` | The business unit or portfolio manager notified on a breach (e.g., Portfolio Manager, Chief Risk Officer). |
-| `SourceChunk` | A raw RuleChunk from the guidelines PDF. All rule-derived nodes have a `DERIVED_FROM` edge pointing here. Carries `source_doc`, `page`, `chunk_id`, `passage_summary`, `extraction_confidence`, `status`. |
+| `SourceChunk` | A raw RuleChunk from the guidelines PDF. All rule-derived nodes have a `DERIVED_FROM` edge pointing here. Carries `source_doc`, `page`, `chunk_id`, `passage_summary`, `extraction_confidence`, `status`, `ingested_at` (ingestion timestamp, satisfying the brief's provenance requirement for ingestion time). |
 
 ---
 

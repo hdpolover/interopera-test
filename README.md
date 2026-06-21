@@ -28,19 +28,31 @@ docker compose up --build
 `--build` is required — a stale cached image from a previous pull would silently use the
 wrong package versions (`typer==0.25.1`, `rich==15.0.0` are pinned in `requirements.txt`).
 
-This single command:
+This single command runs the **full pipeline** automatically:
 1. Builds the `app` image from the local `Dockerfile`
 2. Starts **Neo4j 5.18** (with APOC) and **Postgres 16**
 3. Waits for both database health-checks to pass
-4. Mounts the repo into `/app` and sets `NEO4J_URI`, `POSTGRES_DSN`, etc.
+4. Runs `bin/run_all.sh` inside the container, which executes:
+   - `build-graph` — loads holdings + guidelines into Neo4j
+   - `run --firm A` → `evaluate --firm A --json`
+   - `run --firm B` → `evaluate --firm B --json`
+   - `run --firm C` → `evaluate --firm C --json`
 
-The app container exits after the build step — it is the worker; you invoke pipeline
-commands via `docker compose run` (see below).
+All three firms (A, B, C) are produced by **config switch alone** — no code edits.
+When `docker compose up` completes, all output files are written to `./out/`:
+
+| File | Contents |
+|------|----------|
+| `out/report_firm_{a,b,c}.xlsx` | Formatted compliance report (13 figures) |
+| `out/figures_firm_{a,b,c}.json` | Machine-readable figure array |
+| `out/evaluate_firm_{a,b,c}.json` | Phase 5 evaluation: reconcile + traceability + firewall |
 
 If host ports 5432 or 7687 are already taken, set overrides in a `.env` file (see
 `.env.example`).
 
 ---
+
+## Running Individual Commands
 
 ## `fundra` — Short-Form CLI
 

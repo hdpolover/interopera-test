@@ -251,7 +251,15 @@ def run_cmd(
     cfg_hash = effective_config_hash(config)
     _audit_log(
         audit, run_id, "config_loaded", "cli",
-        {"firm_id": firm_id, "config_hash": cfg_hash},
+        {
+            "firm_id": firm_id,
+            "config_hash": cfg_hash,
+            "knobs": {
+                "include_fallen_angels": config.non_ig.include_fallen_angels,
+                "gre_group_key": config.concentration.gre.group_key,
+                "utilization_format": config.output.utilization_format,
+            },
+        },
         config_hash=cfg_hash,
     )
 
@@ -318,8 +326,11 @@ def reconcile(
         expected = parse_answer_key_xlsx(str(SAMPLE_DOCS / "firm_A_answer_key.xlsx"))
     elif firm.upper() == "C":
         expected = parse_expected_yaml(str(CONFIG_DIR / "firm_c_expected.yaml"))
-    else:
+    elif firm.upper() == "B":
         expected = parse_expected_yaml(str(CONFIG_DIR / "firm_b_expected.yaml"))
+    else:
+        typer.echo(f"Error: Unknown firm: {firm}. Must be one of A, B, C.", err=True)
+        raise typer.Exit(code=1)
 
     results = do_reconcile(figures, expected)
     failed = [r for r in results if not r.passed]
@@ -381,8 +392,11 @@ def evaluate(
         expected = parse_answer_key_xlsx(str(SAMPLE_DOCS / "firm_A_answer_key.xlsx"))
     elif firm.upper() == "C":
         expected = parse_expected_yaml(str(CONFIG_DIR / "firm_c_expected.yaml"))
-    else:
+    elif firm.upper() == "B":
         expected = parse_expected_yaml(str(CONFIG_DIR / "firm_b_expected.yaml"))
+    else:
+        typer.echo(f"Error: Unknown firm: {firm}. Must be one of A, B, C.", err=True)
+        raise typer.Exit(code=1)
     recon_results = do_reconcile(figures, expected)
     recon_failed = [r for r in recon_results if not r.passed]
     if recon_failed:
